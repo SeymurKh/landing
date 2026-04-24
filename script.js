@@ -45,11 +45,18 @@ const FALLBACK_VIDEOS = [
 
 /*
  * Live streams — UPDATE MANUALLY after each new stream.
- * YouTube RSS does NOT include live streams.
+ * YouTube RSS does NOT distinguish streams from regular videos,
+ * so we keep a list of stream IDs to filter them OUT of "Latest Videos"
+ * and show them ONLY in the "Streams" section.
+ *
+ * To add a new stream: add it here with id, title, url, thumbnail.
  */
 const STREAMS = [
   { id: "RJtt_Jd9Uns", title: "RADIO 24/7 | Downtempo for Coding, Work & Inner Flow", url: "https://www.youtube.com/live/RJtt_Jd9Uns", thumbnail: "https://i.ytimg.com/vi/RJtt_Jd9Uns/hqdefault.jpg" },
 ];
+
+/* IDs that should ONLY appear in Streams, never in Latest Videos */
+const STREAM_IDS = new Set(STREAMS.map((s) => s.id));
 
 /* ─── DOM refs ───────────────────────────────────────────────────────── */
 
@@ -89,9 +96,17 @@ function cacheSet(key, data) {
 }
 
 /* Clear ALL old cache */
-["essk_videos", "essk_videos_v2", "essk_videos_v3"].forEach((k) => { try { localStorage.removeItem(k); } catch {} });
+["essk_videos", "essk_videos_v2", "essk_videos_v3", "essk_v4"].forEach((k) => { try { localStorage.removeItem(k); } catch {} });
 
 /* ─── Data fetching ──────────────────────────────────────────────────── */
+
+/* Remove streams from video list — they go to the Streams section only */
+function filterOutStreams(videos) {
+ const filtered = videos.filter((v) => !STREAM_IDS.has(v.id));
+ const removed = videos.length - filtered.length;
+ if (removed > 0) console.log(`[EssKey] Filtered out ${removed} stream(s) from Videos → Streams only`);
+ return filtered;
+}
 
 async function fetchYouTubeVideos() {
   for (let i = 0; i < DATA_SOURCES.length; i++) {
@@ -103,10 +118,14 @@ async function fetchYouTubeVideos() {
       clearTimeout(timer);
       if (!res.ok) continue;
       const data = await res.json();
-      const videos = await src.parse(data);
+      let videos = await src.parse(data);
       if (videos.length > 0) {
-        console.log(`[EssKey] Source #${i + 1} OK — ${videos.length} videos`);
-        return videos;
+        /* Remove streams — they appear only in Streams section */
+        videos = filterOutStreams(videos);
+        if (videos.length > 0) {
+          console.log(`[EssKey] Source #${i + 1} OK — ${videos.length} videos (no streams)`);
+          return videos;
+        }
       }
     } catch (err) {
       clearTimeout(timer);
