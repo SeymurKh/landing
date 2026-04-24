@@ -1,0 +1,140 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EssKeyMusic | YouTube Channel</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="./yt-channel-favicon-circle.png?v=2" />
+  <link rel="shortcut icon" type="image/png" href="./yt-channel-favicon-circle.png?v=2" />
+  <link rel="apple-touch-icon" href="./yt-channel-favicon-circle.png?v=2" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://www.youtube.com" crossorigin>
+  <link rel="preconnect" href="https://i.ytimg.com" crossorigin>
+  <link rel="dns-prefetch" href="//www.youtube.com">
+  <link rel="dns-prefetch" href="//i.ytimg.com">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700&family=Cormorant+Garamond:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body class="is-loading">
+  <div id="preloader" class="preloader" aria-live="polite" aria-label="Loading">
+    <div class="preloader-inner">
+      <p class="preloader-title">Loading</p>
+      <p id="preloaderPercent" class="preloader-percent">0%</p>
+      <div class="preloader-track"><span id="preloaderBar"></span></div>
+    </div>
+  </div>
+  <div class="page-bg" aria-hidden="true">
+    <video
+      class="page-bg-video"
+      muted
+      loop
+      playsinline
+      webkit-playsinline
+      preload="none"
+      data-src="./178065-858860117.mp4"
+    ></video>
+  </div>
+  <div class="grain" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <div class="brand-wrap">
+      <img src="./yt-channel-logo-circle.png" alt="EssKeyMusic logo" class="brand-mark" />
+      <span class="brand-name">EssKeyMusic</span>
+    </div>
+    <nav class="nav">
+      <div class="nav-item nav-videos">
+        <a href="#videos">Videos</a>
+        <div id="videoFlyout" class="video-flyout" aria-label="Latest videos"></div>
+      </div>
+      <div class="nav-item nav-live">
+        <a href="#live">Live</a>
+        <div id="liveFlyout" class="video-flyout" aria-label="Latest streams"></div>
+      </div>
+      <a href="#contact">Contact Us</a>
+    </nav>
+    <a class="btn btn-droplet" href="https://www.youtube.com/@EssKeyMusic?sub_confirmation=1" target="_blank" rel="noreferrer">Subscribe</a>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="hero-overlay"></div>
+      <div class="hero-shell">
+        <div class="hero-content reveal">
+          <p class="eyebrow">YouTube Channel</p>
+          <h1>EssKey Music</h1>
+          <p class="lead">Music & Atmosphere</p>
+          <div class="hero-actions">
+            <a class="btn btn-solid" href="https://www.youtube.com/@EssKeyMusic?sub_confirmation=1" target="_blank" rel="noreferrer">Subscribe</a>
+            <a class="btn btn-ghost" href="#videos">Watch Videos</a>
+          </div>
+        </div>
+        <aside class="hero-player reveal" aria-label="Featured video">
+          <div id="featuredPlayer" class="player-host" aria-label="EssKey Music featured player"></div>
+          <button id="playerPlayBtn" class="player-play" type="button">Play</button>
+          <a
+            id="playerFallback"
+            class="player-fallback"
+            href="https://youtu.be/K5js77szFVM?si=Hwd4d3RyTXyLwWbb"
+            target="_blank"
+            rel="noreferrer"
+          >Watch on YouTube</a>
+        </aside>
+      </div>
+    </section>
+
+    <section id="videos" class="section section-videos">
+      <div class="section-head reveal">
+        <p class="eyebrow">Latest Drops</p>
+        <h2>Latest Videos</h2>
+      </div>
+      <div id="videoList" class="media-grid"></div>
+    </section>
+
+    <section id="live" class="section section-live">
+      <div class="section-head reveal">
+        <p class="eyebrow">Live Sessions</p>
+        <h2>Streams</h2>
+      </div>
+      <div id="liveList" class="media-grid"></div>
+    </section>
+
+    <section id="contact" class="section section-contact">
+      <div class="section-head reveal">
+        <p class="eyebrow">Get In Touch</p>
+        <h2>Contact Us</h2>
+      </div>
+      <div class="contact-grid">
+        <article class="contact-card reveal">
+          <h3 class="contact-title">Direct Email</h3>
+          <p class="contact-text">E-Mail: <a href="mailto:EssKey_YTB@protonmail.com">EssKey_YTB@protonmail.com</a></p>
+          <p class="contact-note">For collaborations, licensing, playlists, and channel inquiries.</p>
+        </article>
+
+        <form id="contactForm" class="contact-form reveal" novalidate>
+          <label for="name">Name</label>
+          <input id="name" name="name" type="text" maxlength="60" required />
+
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" maxlength="120" required />
+
+          <label for="message">Message</label>
+          <textarea id="message" name="message" rows="5" maxlength="1000" required></textarea>
+
+          <button class="btn btn-line" type="submit">Send Message</button>
+          <p id="formStatus" class="form-status" role="status" aria-live="polite"></p>
+        </form>
+      </div>
+    </section>
+
+    <section id="cta" class="section section-cta reveal">
+      <p class="eyebrow">Join The Circle</p>
+      <h2>Subscribe</h2>
+      <p>Don’t miss new releases and upcoming live sessions.</p>
+      <a class="btn btn-solid" href="https://www.youtube.com/@EssKeyMusic?sub_confirmation=1" target="_blank" rel="noreferrer">Subscribe</a>
+    </section>
+  </main>
+
+  <script src="./script.js"></script>
+</body>
+</html>

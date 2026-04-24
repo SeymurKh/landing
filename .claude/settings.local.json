@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:www.youtube.com)",
+      "WebFetch(domain:esskey-music.vercel.app)",
+      "WebFetch(domain:inv.nadeko.net)",
+      "WebFetch(domain:api.rss2json.com)",
+      "WebFetch(domain:invidious.privacyredirect.com)",
+      "WebFetch(domain:yt.artemislena.eu)",
+      "mcp__Claude_Preview__preview_start",
+      "mcp__Claude_in_Chrome__tabs_context_mcp",
+      "Bash(node --check \"D:/Code on Work Projects/Codex code/landing/script.js\")"
+    ]
+  }
+}
