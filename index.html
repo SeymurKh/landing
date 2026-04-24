@@ -1,22 +1,47 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>EssKeyMusic | YouTube Channel</title>
+  <meta name="description" content="EssKey Music — ambient, lo-fi & downtempo for deep focus, coding, and late-night thinking. Subscribe for new releases and live sessions." />
+  <meta name="theme-color" content="#070707" />
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="EssKeyMusic | YouTube Channel" />
+  <meta property="og:description" content="Music & Atmosphere — ambient, lo-fi & downtempo for deep focus and creative work." />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="./yt-channel-logo-circle.png" />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="EssKeyMusic" />
+  <meta name="twitter:description" content="Music & Atmosphere — ambient, lo-fi & downtempo for deep focus." />
+  <meta name="twitter:image" content="./yt-channel-logo-circle.png" />
+
+  <!-- Favicons -->
   <link rel="icon" type="image/png" sizes="32x32" href="./yt-channel-favicon-circle.png?v=2" />
   <link rel="shortcut icon" type="image/png" href="./yt-channel-favicon-circle.png?v=2" />
   <link rel="apple-touch-icon" href="./yt-channel-favicon-circle.png?v=2" />
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="preconnect" href="https://www.youtube.com" crossorigin>
-  <link rel="preconnect" href="https://i.ytimg.com" crossorigin>
-  <link rel="dns-prefetch" href="//www.youtube.com">
-  <link rel="dns-prefetch" href="//i.ytimg.com">
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700&family=Cormorant+Garamond:wght@500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Preconnect: fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+  <!-- Preconnect: YouTube (thumbnails + iframe API) -->
+  <link rel="preconnect" href="https://www.youtube.com" crossorigin />
+  <link rel="preconnect" href="https://i.ytimg.com" crossorigin />
+  <link rel="dns-prefetch" href="//www.youtube.com" />
+  <link rel="dns-prefetch" href="//i.ytimg.com" />
+
+  <!-- Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700&family=Cormorant+Garamond:wght@500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Styles -->
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body class="is-loading">
+  <!-- Preloader -->
   <div id="preloader" class="preloader" aria-live="polite" aria-label="Loading">
     <div class="preloader-inner">
       <p class="preloader-title">Loading</p>
@@ -24,6 +49,8 @@
       <div class="preloader-track"><span id="preloaderBar"></span></div>
     </div>
   </div>
+
+  <!-- Background video -->
   <div class="page-bg" aria-hidden="true">
     <video
       class="page-bg-video"
@@ -35,11 +62,14 @@
       data-src="./178065-858860117.mp4"
     ></video>
   </div>
+
+  <!-- Grain texture overlay -->
   <div class="grain" aria-hidden="true"></div>
 
+  <!-- Top navigation bar -->
   <header class="topbar">
     <div class="brand-wrap">
-      <img src="./yt-channel-logo-circle.png" alt="EssKeyMusic logo" class="brand-mark" />
+      <img src="./yt-channel-logo-circle.png" alt="EssKeyMusic logo" class="brand-mark" width="46" height="46" />
       <span class="brand-name">EssKeyMusic</span>
     </div>
     <nav class="nav">
@@ -53,10 +83,11 @@
       </div>
       <a href="#contact">Contact Us</a>
     </nav>
-    <a class="btn btn-droplet" href="https://www.youtube.com/@EssKeyMusic?sub_confirmation=1" target="_blank" rel="noreferrer">Subscribe</a>
+    <a class="btn btn-droplet" href="https://www.youtube.com/@EssKeyMusic?sub_confirmation=1" target="_blank" rel="noopener noreferrer">Subscribe</a>
   </header>
 
   <main>
+    <!-- Hero section with featured YouTube player -->
     <section class="hero">
       <div class="hero-overlay"></div>
       <div class="hero-shell">
@@ -65,7 +96,7 @@
           <h1>EssKey Music</h1>
           <p class="lead">Music & Atmosphere</p>
           <div class="hero-actions">
-            <a class="btn btn-solid" href="https://www.youtube.com/@EssKeyMusic?sub_confirmation=1" target="_blank" rel="noreferrer">Subscribe</a>
+            <a class="btn btn-solid" href="https://www.youtube.com/@EssKeyMusic?sub_confirmation=1" target="_blank" rel="noopener noreferrer">Subscribe</a>
             <a class="btn btn-ghost" href="#videos">Watch Videos</a>
           </div>
         </div>
@@ -77,12 +108,13 @@
             class="player-fallback"
             href="https://youtu.be/K5js77szFVM?si=Hwd4d3RyTXyLwWbb"
             target="_blank"
-            rel="noreferrer"
+            rel="noopener noreferrer"
           >Watch on YouTube</a>
         </aside>
       </div>
     </section>
 
+    <!-- Latest videos grid (auto-updated from RSS) -->
     <section id="videos" class="section section-videos">
       <div class="section-head reveal">
         <p class="eyebrow">Latest Drops</p>
@@ -91,6 +123,7 @@
       <div id="videoList" class="media-grid"></div>
     </section>
 
+    <!-- Live streams (updated manually in script.js) -->
     <section id="live" class="section section-live">
       <div class="section-head reveal">
         <p class="eyebrow">Live Sessions</p>
@@ -99,6 +132,7 @@
       <div id="liveList" class="media-grid"></div>
     </section>
 
+    <!-- Contact section -->
     <section id="contact" class="section section-contact">
       <div class="section-head reveal">
         <p class="eyebrow">Get In Touch</p>
@@ -113,10 +147,10 @@
 
         <form id="contactForm" class="contact-form reveal" novalidate>
           <label for="name">Name</label>
-          <input id="name" name="name" type="text" maxlength="60" required />
+          <input id="name" name="name" type="text" maxlength="60" required autocomplete="name" />
 
           <label for="email">Email</label>
-          <input id="email" name="email" type="email" maxlength="120" required />
+          <input id="email" name="email" type="email" maxlength="120" required autocomplete="email" />
 
           <label for="message">Message</label>
           <textarea id="message" name="message" rows="5" maxlength="1000" required></textarea>
@@ -127,11 +161,12 @@
       </div>
     </section>
 
+    <!-- CTA subscribe -->
     <section id="cta" class="section section-cta reveal">
       <p class="eyebrow">Join The Circle</p>
       <h2>Subscribe</h2>
-      <p>Don’t miss new releases and upcoming live sessions.</p>
-      <a class="btn btn-solid" href="https://www.youtube.com/@EssKeyMusic?sub_confirmation=1" target="_blank" rel="noreferrer">Subscribe</a>
+      <p>Don't miss new releases and upcoming live sessions.</p>
+      <a class="btn btn-solid" href="https://www.youtube.com/@EssKeyMusic?sub_confirmation=1" target="_blank" rel="noopener noreferrer">Subscribe</a>
     </section>
   </main>
 

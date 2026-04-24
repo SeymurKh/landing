@@ -30,6 +30,8 @@ body.is-loading {
   overflow: hidden;
 }
 
+/* ─── Preloader ──────────────────────────────────────────────────────── */
+
 .preloader {
   position: fixed;
   inset: 0;
@@ -37,7 +39,7 @@ body.is-loading {
   display: grid;
   place-items: center;
   background: #070707;
-  transition: opacity 340ms ease, visibility 340ms ease;
+  transition: opacity 300ms ease, visibility 300ms ease;
 }
 
 .preloader.is-hidden {
@@ -76,8 +78,10 @@ body.is-loading {
   width: 0%;
   height: 100%;
   background: #f1f1f1;
-  transition: width 120ms linear;
+  transition: width 100ms linear;
 }
+
+/* ─── Background video ───────────────────────────────────────────────── */
 
 .page-bg {
   position: fixed;
@@ -104,15 +108,20 @@ body.is-loading {
   background: linear-gradient(to bottom, rgba(5, 5, 5, 0.2), rgba(5, 5, 5, 0.52));
 }
 
+/* ─── Grain overlay ──────────────────────────────────────────────────── */
+
 .grain {
   position: fixed;
   inset: 0;
   pointer-events: none;
   background-image: url("./assets/noise.svg");
-  opacity: 0.2;
+  opacity: 0.18;
   mix-blend-mode: soft-light;
   z-index: 2;
+  will-change: opacity;
 }
+
+/* ─── Top bar ────────────────────────────────────────────────────────── */
 
 .topbar {
   position: fixed;
@@ -126,9 +135,11 @@ body.is-loading {
   gap: 38px;
   padding: 0 34px;
   z-index: 20;
-  backdrop-filter: blur(8px);
-  background: rgba(8, 8, 8, 0.45);
+  backdrop-filter: blur(10px) saturate(1.4);
+  -webkit-backdrop-filter: blur(10px) saturate(1.4);
+  background: rgba(8, 8, 8, 0.5);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  will-change: backdrop-filter;
 }
 
 .brand-wrap {
@@ -178,11 +189,15 @@ body.is-loading {
   transform: translateY(-1px);
 }
 
+/* ─── Main ───────────────────────────────────────────────────────────── */
+
 main {
   position: relative;
   z-index: 3;
   padding-top: 74px;
 }
+
+/* ─── Hero ───────────────────────────────────────────────────────────── */
 
 .hero {
   position: relative;
@@ -203,8 +218,7 @@ main {
 .hero-overlay {
   position: absolute;
   inset: 0;
-  background:
-    linear-gradient(to bottom, rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.65));
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.65));
 }
 
 .hero-content {
@@ -222,6 +236,7 @@ main {
   overflow: hidden;
   background: rgba(12, 12, 12, 0.75);
   box-shadow: 0 14px 50px rgba(0, 0, 0, 0.45);
+  contain: layout paint;
 }
 
 .hero-player iframe {
@@ -296,6 +311,8 @@ main {
   transform: translate(-50%, -52%);
 }
 
+/* ─── Typography ─────────────────────────────────────────────────────── */
+
 .eyebrow {
   margin: 0 0 12px;
   font-size: 0.78rem;
@@ -327,6 +344,8 @@ h2 {
   line-height: 1.65;
   margin: 0 0 24px;
 }
+
+/* ─── Buttons ────────────────────────────────────────────────────────── */
 
 .hero-actions {
   display: flex;
@@ -384,6 +403,8 @@ h2 {
   border-color: rgba(255, 255, 255, 0.62);
 }
 
+/* ─── Video flyout menus ─────────────────────────────────────────────── */
+
 .nav-item {
   position: relative;
 }
@@ -399,6 +420,7 @@ h2 {
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: rgba(10, 10, 10, 0.86);
   backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   padding: 8px;
   transition:
     opacity 220ms ease,
@@ -432,15 +454,21 @@ h2 {
   background: rgba(255, 255, 255, 0.04);
 }
 
+/* ─── Sections (below the fold — content-visibility for perf) ────────── */
+
 .section {
   width: min(var(--max), calc(100% - 44px));
   margin: 0 auto;
   padding: clamp(60px, 8vw, 120px) 0;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 600px;
 }
 
 .section-head {
   margin-bottom: 28px;
 }
+
+/* ─── Media grid ─────────────────────────────────────────────────────── */
 
 .media-grid {
   display: grid;
@@ -456,6 +484,7 @@ h2 {
   border: 1px solid var(--line);
   background: #111;
   cursor: pointer;
+  contain: layout paint;
 }
 
 /* Thumbnail */
@@ -467,6 +496,7 @@ h2 {
   background-size: cover;
   background-position: center;
   transition: transform 600ms ease;
+  will-change: transform;
 }
 
 .media-card:hover::before {
@@ -500,21 +530,7 @@ h2 {
   flex: 1;
 }
 
-@media (max-width: 860px) {
-  .media-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (max-width: 520px) {
-  .media-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .media-card {
-    aspect-ratio: 16 / 9;
-  }
-}
+/* ─── Live section ───────────────────────────────────────────────────── */
 
 .section-live {
   position: relative;
@@ -532,6 +548,7 @@ h2 {
   text-decoration: underline;
 }
 
+/* ─── Contact ────────────────────────────────────────────────────────── */
 
 .contact-grid {
   display: grid;
@@ -606,16 +623,7 @@ h2 {
   font-size: 0.88rem;
 }
 
-.site-footer {
-  position: relative;
-  z-index: 3;
-  width: min(var(--max), calc(100% - 44px));
-  margin: 0 auto 30px;
-  padding-top: 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
-  color: #c8c8c8;
-  font-size: 0.92rem;
-}
+/* ─── CTA section ────────────────────────────────────────────────────── */
 
 .section-cta {
   text-align: center;
@@ -625,6 +633,8 @@ h2 {
 .section-cta p {
   color: #cccccc;
 }
+
+/* ─── Reveal animation ───────────────────────────────────────────────── */
 
 .reveal {
   opacity: 0;
@@ -636,6 +646,8 @@ h2 {
   opacity: 1;
   transform: translateY(0);
 }
+
+/* ─── Responsive: tablet ─────────────────────────────────────────────── */
 
 @media (max-width: 920px) {
   .nav {
@@ -663,9 +675,13 @@ h2 {
   .hero-player {
     width: 100%;
   }
+}
 
-  .site-footer {
-    width: min(var(--max), calc(100% - 28px));
+/* ─── Responsive: mobile ─────────────────────────────────────────────── */
+
+@media (max-width: 860px) {
+  .media-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 
@@ -705,7 +721,13 @@ h2 {
   .hero-actions .btn {
     flex: 1 1 100%;
   }
+
+  .media-grid {
+    grid-template-columns: 1fr;
+  }
 }
+
+/* ─── Accessibility: reduced motion ──────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
   * {
