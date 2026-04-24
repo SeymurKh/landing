@@ -90,6 +90,7 @@ body.is-loading {
   overflow: hidden;
   pointer-events: none;
   background: #070707;
+  will-change: transform;
 }
 
 .page-bg-video {

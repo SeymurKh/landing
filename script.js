@@ -186,17 +186,22 @@ document.querySelectorAll(".reveal").forEach((el, i) => {
 
 /* ─── Background video (lazy) ────────────────────────────────────────── */
 
+const $pageBg = document.querySelector(".page-bg");
 const $bgVideo = document.querySelector(".page-bg-video");
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 let bgVideoInit = false;
 
 function initBgVideo() {
-  if (bgVideoInit || !$bgVideo || reducedMotion) return;
+  if (bgVideoInit || !$bgVideo) return;
   bgVideoInit = true;
+  /* Skip on reduced-motion or save-data — still mark milestone as done */
+  if (reducedMotion) { window.__bgVideoReady?.(); return; }
   const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-  if (conn?.saveData || /(?:^|slow-)2g/.test(conn?.effectiveType || "")) return;
+  if (conn?.saveData || /(?:^|slow-)2g/.test(conn?.effectiveType || "")) { window.__bgVideoReady?.(); return; }
   const src = $bgVideo.dataset.src;
-  if (!src) return;
+  if (!src) { window.__bgVideoReady?.(); return; }
+  /* Notify preloader once video can play through */
+  $bgVideo.addEventListener("canplaythrough", () => window.__bgVideoReady?.(), { once: true });
   const s = document.createElement("source"); s.src = src; s.type = "video/mp4";
   $bgVideo.appendChild(s); $bgVideo.load();
   $bgVideo.play().catch(() => {
@@ -308,13 +313,131 @@ function initPlayerLazy() {
   }
 }
 
+/* ─── Smart Preloader (real progress 0 → 100%) ──────────────────────── */
+
+function initSmartPreloader(dataPromise) {
+  if (!$preloader || !$preloaderBar || !$preloaderPct) {
+    document.body.classList.remove("is-loading");
+    return Promise.resolve();
+  }
+
+  let displayed = 0;
+  let targetPct = 0;
+  let raf = null;
+  let finished = false;
+
+  /* ── Collect resource URLs from DOM ── */
+  const resEls = document.querySelectorAll("link[href], script[src], img[src], video[data-src]");
+  const pending = new Set();
+  let loadedCount = 0;
+  const totalRes = resEls.length || 1;
+
+  for (const el of resEls) {
+    try {
+      const raw = el.href || el.src || (el.dataset && el.dataset.src) || "";
+      if (!raw || raw.startsWith("data:") || raw.startsWith("javascript:")) continue;
+      const url = new URL(raw, location.href).href;
+      pending.add(url);
+    } catch {}
+  }
+
+  /* Count resources already loaded before script ran */
+  const doneRes = performance.getEntriesByType("resource");
+  for (const entry of doneRes) {
+    if (pending.has(entry.name)) { pending.delete(entry.name); loadedCount++; }
+  }
+
+  /* ── Weights: resources 35% + milestones 65% ── */
+  const RES_W = 0.35;
+  const MS_W = 0.65;
+  const TOTAL_MS = 3; /* fonts + data + video */
+  let msCount = 0;
+
+  function calcTarget() {
+    const resPct = loadedCount / totalRes;
+    const msPct = msCount / TOTAL_MS;
+    return Math.min(100, (resPct * RES_W + msPct * MS_W) * 100);
+  }
+
+  function animate() {
+    targetPct = calcTarget();
+    displayed += (targetPct - displayed) * 0.08;
+    if (Math.abs(targetPct - displayed) < 0.3) displayed = targetPct;
+    const pct = Math.min(100, Math.round(displayed));
+    $preloaderBar.style.width = `${pct}%`;
+    $preloaderPct.textContent = `${pct}%`;
+    if (pct >= 100 && !finished) {
+      finished = true;
+      cancelAnimationFrame(raf);
+      setTimeout(() => {
+        $preloader.classList.add("is-hidden");
+        document.body.classList.remove("is-loading");
+      }, 200);
+      return;
+    }
+    raf = requestAnimationFrame(animate);
+  }
+
+  raf = requestAnimationFrame(animate);
+
+  /* ── PerformanceObserver: live-track resources loading ── */
+  if ("PerformanceObserver" in window) {
+    try {
+      const obs = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          if (pending.has(entry.name)) { pending.delete(entry.name); loadedCount++; }
+        }
+      });
+      obs.observe({ type: "resource", buffered: false });
+    } catch {}
+  }
+
+  /* ── Milestones ── */
+  document.fonts?.ready?.then(() => msCount++);
+  dataPromise.finally(() => msCount++);
+  window.__bgVideoReady = () => msCount++;
+
+  /* ── Safety timeout: 10s max ── */
+  setTimeout(() => {
+    if (!finished) { msCount = TOTAL_MS; loadedCount = totalRes; }
+  }, 10000);
+
+  return new Promise((resolve) => {
+    const check = setInterval(() => { if (finished) { clearInterval(check); resolve(); } }, 80);
+  });
+}
+
+/* ─── Parallax background ────────────────────────────────────────────── */
+
+function initParallax() {
+  if (!$pageBg || reducedMotion) return;
+  let currentY = 0;
+  let targetY = 0;
+  let ticking = false;
+
+  function update() {
+    currentY += (targetY - currentY) * 0.1;
+    if (Math.abs(targetY - currentY) < 0.05) currentY = targetY;
+    $pageBg.style.transform = `translate3d(0, ${currentY}px, 0)`;
+    ticking = false;
+  }
+
+  window.addEventListener("scroll", () => {
+    targetY = window.scrollY * 0.03;
+    if (!ticking) { ticking = true; requestAnimationFrame(update); }
+  }, { passive: true });
+}
+
 /* ─── Bootstrap ──────────────────────────────────────────────────────── */
 
 /* 1. Show skeletons while loading */
 renderSkeletons($videoList, 6);
 renderStreams(STREAMS);
 
-/* 2. Fetch videos */
+/* 2. Start background video in parallel (feeds preloader milestone) */
+initBgVideo();
+
+/* 3. Fetch YouTube data */
 const videosPromise = fetchYouTubeVideos()
   .then((videos) => {
     console.log(`[EssKey] Loaded ${videos.length} videos. Latest: "${videos[0]?.title}" (${videos[0]?.id})`);
@@ -331,33 +454,8 @@ const videosPromise = fetchYouTubeVideos()
     return [];
   });
 
-/* 3. Minimal preloader (fonts + data) */
-(function runPreloader(promise) {
-  if (!$preloader || !$preloaderBar || !$preloaderPct) { document.body.classList.remove("is-loading"); return; }
-  let current = 0, target = 30;
-  const tick = () => {
-    current += (target - current) * 0.15;
-    if (target - current < 0.5) current = target;
-    const pct = Math.round(Math.min(100, current));
-    $preloaderBar.style.width = `${pct}%`;
-    $preloaderPct.textContent = `${pct}%`;
-    if (pct < 100) requestAnimationFrame(tick);
-  };
-  requestAnimationFrame(tick);
-  target = 60;
-  const ready = Promise.allSettled([
-    document.fonts?.ready?.then(() => { target = Math.max(target, 85); }) ?? Promise.resolve(),
-    promise.finally(() => { target = 100; }),
-  ]).then(() => new Promise((r) => setTimeout(r, 120)));
-  const hardStop = new Promise((r) => setTimeout(() => { target = 100; setTimeout(r, 120); }, 1200));
-  Promise.race([ready, hardStop]).then(() => {
-    $preloader.classList.add("is-hidden");
-    document.body.classList.remove("is-loading");
-  });
-})(videosPromise);
-
-/* 4. Init heavy resources after preloader */
-videosPromise.then(() => {
-  initBgVideo();
+/* 4. Smart preloader: tracks resources + fonts + data + video → 0→100% */
+initSmartPreloader(videosPromise).then(() => {
   initPlayerLazy();
+  initParallax();
 });
