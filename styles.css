@@ -95,29 +95,29 @@ body.is-loading {
 .bg-orb {
   position: absolute;
   border-radius: 50%;
-  filter: blur(100px);
-  opacity: 0.15;
+  filter: blur(80px);
+  opacity: 0.4;
   will-change: transform;
 }
 
 .bg-orb--1 {
-  width: 60vw; height: 60vw;
-  top: -20%; left: -10%;
-  background: radial-gradient(circle, rgba(40,40,80,0.8), transparent 70%);
+  width: 70vw; height: 70vw;
+  top: -25%; left: -15%;
+  background: radial-gradient(circle, rgba(60,50,120,1), rgba(40,30,80,0.4) 50%, transparent 70%);
   animation: orbFloat1 25s ease-in-out infinite;
 }
 
 .bg-orb--2 {
-  width: 50vw; height: 50vw;
-  bottom: -15%; right: -10%;
-  background: radial-gradient(circle, rgba(20,50,60,0.6), transparent 70%);
+  width: 55vw; height: 55vw;
+  bottom: -20%; right: -15%;
+  background: radial-gradient(circle, rgba(30,80,90,1), rgba(20,50,60,0.4) 50%, transparent 70%);
   animation: orbFloat2 30s ease-in-out infinite;
 }
 
 .bg-orb--3 {
-  width: 40vw; height: 40vw;
-  top: 40%; left: 50%;
-  background: radial-gradient(circle, rgba(50,30,60,0.5), transparent 70%);
+  width: 45vw; height: 45vw;
+  top: 35%; left: 45%;
+  background: radial-gradient(circle, rgba(80,40,100,1), rgba(50,30,60,0.4) 50%, transparent 70%);
   animation: orbFloat3 20s ease-in-out infinite;
 }
 
