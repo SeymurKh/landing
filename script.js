@@ -184,6 +184,28 @@ document.querySelectorAll(".reveal").forEach((el, i) => {
   revealObs.observe(el);
 });
 
+/* ─── Background video (lazy) ────────────────────────────────────────── */
+
+const $bgVideo = document.querySelector(".page-bg-video");
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+let bgVideoInit = false;
+
+function initBgVideo() {
+  if (bgVideoInit || !$bgVideo || reducedMotion) return;
+  bgVideoInit = true;
+  const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  if (conn?.saveData || /(?:^|slow-)2g/.test(conn?.effectiveType || "")) return;
+  const src = $bgVideo.dataset.src;
+  if (!src) return;
+  const s = document.createElement("source"); s.src = src; s.type = "video/mp4";
+  $bgVideo.appendChild(s); $bgVideo.load();
+  $bgVideo.play().catch(() => {
+    const retry = () => $bgVideo.play().catch(() => {});
+    document.addEventListener("touchstart", retry, { once: true, passive: true });
+    document.addEventListener("click", retry, { once: true, passive: true });
+  });
+}
+
 /* ─── Contact form ───────────────────────────────────────────────────── */
 
 const $form = document.getElementById("contactForm");
@@ -334,5 +356,8 @@ const videosPromise = fetchYouTubeVideos()
   });
 })(videosPromise);
 
-/* 4. Init YouTube player after preloader */
-videosPromise.then(() => initPlayerLazy());
+/* 4. Init heavy resources after preloader */
+videosPromise.then(() => {
+  initBgVideo();
+  initPlayerLazy();
+});
