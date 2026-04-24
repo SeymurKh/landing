@@ -5,7 +5,22 @@ const RSS_URL = `https://www.youtube.com/feeds/videos.xml?channel_id=${CHANNEL_I
 
 /* Multiple data sources — tried in order until one works */
 const DATA_SOURCES = [
-  /* 1. rss2json.com — free, CORS-enabled */
+  /* 1. AllOrigins CORS proxy — fresh data from YouTube (no server-side cache) */
+  {
+    url: `https://api.allorigins.win/get?url=${encodeURIComponent(RSS_URL)}`,
+    async parse(json) {
+      if (!json.contents) throw new Error("No contents");
+      return parseYouTubeXml(json.contents);
+    },
+  },
+  /* 2. corsproxy.io — alternative CORS proxy */
+  {
+    url: `https://corsproxy.io/?url=${encodeURIComponent(RSS_URL)}`,
+    async parse(text) {
+      return parseYouTubeXml(text);
+    },
+  },
+  /* 3. rss2json.com — reliable fallback (may cache 15-30 min) */
   {
     url: `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(RSS_URL)}`,
     parse(json) {
@@ -17,21 +32,6 @@ const DATA_SOURCES = [
         thumbnail: item.thumbnail || item.enclosure?.link || "",
         published: item.pubDate,
       }));
-    },
-  },
-  /* 2. AllOrigins CORS proxy */
-  {
-    url: `https://api.allorigins.win/get?url=${encodeURIComponent(RSS_URL)}`,
-    async parse(json) {
-      if (!json.contents) throw new Error("No contents");
-      return parseYouTubeXml(json.contents);
-    },
-  },
-  /* 3. corsproxy.io */
-  {
-    url: `https://corsproxy.io/?url=${encodeURIComponent(RSS_URL)}`,
-    async parse(text) {
-      return parseYouTubeXml(text);
     },
   },
 ];
@@ -342,7 +342,9 @@ renderVideos(FALLBACK_VIDEOS);
 renderStreams(STREAMS);
 
 /* 2. Fetch latest videos and set up everything */
-const CACHE_KEY = "essk_v4";
+const CACHE_KEY = "essk_v5";
+/* Clear old cache versions */
+["essk_videos", "essk_videos_v2", "essk_videos_v3", "essk_v4"].forEach((k) => { try { localStorage.removeItem(k); } catch {} });
 
 const videosPromise = fetchYouTubeVideos()
   .then((videos) => {
