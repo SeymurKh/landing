@@ -11,34 +11,32 @@
   <meta property="og:title" content="EssKeyMusic | YouTube Channel" />
   <meta property="og:description" content="Music & Atmosphere — ambient, lo-fi & downtempo for deep focus and creative work." />
   <meta property="og:type" content="website" />
-  <meta property="og:image" content="./yt-channel-logo-circle.png" />
+  <meta property="og:image" content="./yt-channel-logo-circle.webp" />
 
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary" />
   <meta name="twitter:title" content="EssKeyMusic" />
   <meta name="twitter:description" content="Music & Atmosphere — ambient, lo-fi & downtempo for deep focus." />
-  <meta name="twitter:image" content="./yt-channel-logo-circle.png" />
+  <meta name="twitter:image" content="./yt-channel-logo-circle.webp" />
 
   <!-- Favicons -->
-  <link rel="icon" type="image/png" sizes="32x32" href="./yt-channel-favicon-circle.png?v=2" />
-  <link rel="shortcut icon" type="image/png" href="./yt-channel-favicon-circle.png?v=2" />
-  <link rel="apple-touch-icon" href="./yt-channel-favicon-circle.png?v=2" />
+  <link rel="icon" type="image/webp" sizes="32x32" href="./yt-channel-favicon-circle.webp" />
+  <link rel="shortcut icon" type="image/webp" href="./yt-channel-favicon-circle.webp" />
+  <link rel="apple-touch-icon" href="./yt-channel-favicon-circle.webp" />
 
   <!-- Preconnect: fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 
-  <!-- Preconnect: YouTube (thumbnails + iframe API) -->
-  <link rel="preconnect" href="https://www.youtube.com" crossorigin />
-  <link rel="preconnect" href="https://i.ytimg.com" crossorigin />
-  <link rel="dns-prefetch" href="//www.youtube.com" />
+  <!-- Preconnect: YouTube (iframe API + thumbnails) -->
+  <link rel="preconnect" href="https://www.youtube.com" />
   <link rel="dns-prefetch" href="//i.ytimg.com" />
 
   <!-- Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700&family=Cormorant+Garamond:wght@500;600;700&display=swap" rel="stylesheet" />
 
   <!-- Styles -->
-  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="./styles.min.css" />
 </head>
 <body class="is-loading">
   <!-- Preloader -->
@@ -50,17 +48,11 @@
     </div>
   </div>
 
-  <!-- Background video -->
+  <!-- Background ambient animation (CSS-only, 0 bytes) -->
   <div class="page-bg" aria-hidden="true">
-    <video
-      class="page-bg-video"
-      muted
-      loop
-      playsinline
-      webkit-playsinline
-      preload="none"
-      data-src="./178065-858860117.mp4"
-    ></video>
+    <div class="bg-orb bg-orb--1"></div>
+    <div class="bg-orb bg-orb--2"></div>
+    <div class="bg-orb bg-orb--3"></div>
   </div>
 
   <!-- Grain texture overlay -->
@@ -69,7 +61,7 @@
   <!-- Top navigation bar -->
   <header class="topbar">
     <div class="brand-wrap">
-      <img src="./yt-channel-logo-circle.png" alt="EssKeyMusic logo" class="brand-mark" width="46" height="46" />
+      <img src="./yt-channel-logo-circle.webp" alt="EssKeyMusic logo" class="brand-mark" width="46" height="46" />
       <span class="brand-name">EssKeyMusic</span>
     </div>
     <nav class="nav">
@@ -106,7 +98,7 @@
           <a
             id="playerFallback"
             class="player-fallback"
-            href="https://youtu.be/K5js77szFVM?si=Hwd4d3RyTXyLwWbb"
+            href="#"
             target="_blank"
             rel="noopener noreferrer"
           >Watch on YouTube</a>
@@ -170,6 +162,6 @@
     </section>
   </main>
 
-  <script src="./script.js"></script>
+  <script src="./script.min.js"></script>
 </body>
 </html>

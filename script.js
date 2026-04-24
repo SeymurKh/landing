@@ -3,9 +3,8 @@
 const CHANNEL_ID = "UCa9kWM8BbmFi5OpXbjyqk9w";
 const RSS_URL = `https://www.youtube.com/feeds/videos.xml?channel_id=${CHANNEL_ID}`;
 
-/* Data sources — fetched IN PARALLEL, first successful result wins */
+/* Data sources — fetched IN PARALLEL */
 const DATA_SOURCES = [
-  /* AllOrigins — fresh data directly from YouTube (no server cache) */
   {
     name: "AllOrigins",
     url: `https://api.allorigins.win/get?url=${encodeURIComponent(RSS_URL)}`,
@@ -14,7 +13,6 @@ const DATA_SOURCES = [
       return parseYouTubeXml(json.contents);
     },
   },
-  /* rss2json.com — backup (may cache 15-30 min) */
   {
     name: "rss2json",
     url: `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(RSS_URL)}`,
@@ -31,26 +29,16 @@ const DATA_SOURCES = [
   },
 ];
 
-/* Fallback — shown instantly while API loads */
-const FALLBACK_VIDEOS = [
-  { id: "Z8axMWvzUrE", title: "DEEP FOCUS PROTOCOL | Lo-fi Flow for Creations & Coding", url: "https://youtu.be/Z8axMWvzUrE", thumbnail: "https://i.ytimg.com/vi/Z8axMWvzUrE/hqdefault.jpg" },
-  { id: "K5js77szFVM", title: "Deep Focus Frequency | Downtempo for Coding, Work & Inner Flow", url: "https://youtu.be/K5js77szFVM", thumbnail: "https://i.ytimg.com/vi/K5js77szFVM/hqdefault.jpg" },
-  { id: "SO1pmKFicTE", title: "Enter The Flow State | Ambient for Deep Work & Late-Night Thinking", url: "https://youtu.be/SO1pmKFicTE", thumbnail: "https://i.ytimg.com/vi/SO1pmKFicTE/hqdefault.jpg" },
-];
-
 /*
  * Live streams — UPDATE MANUALLY after each new stream.
  * YouTube RSS does NOT distinguish streams from regular videos,
  * so we keep a list of stream IDs to filter them OUT of "Latest Videos"
  * and show them ONLY in the "Streams" section.
- *
- * To add a new stream: add it here with id, title, url, thumbnail.
  */
 const STREAMS = [
   { id: "RJtt_Jd9Uns", title: "RADIO 24/7 | Downtempo for Coding, Work & Inner Flow", url: "https://www.youtube.com/live/RJtt_Jd9Uns", thumbnail: "https://i.ytimg.com/vi/RJtt_Jd9Uns/hqdefault.jpg" },
 ];
 
-/* IDs that should ONLY appear in Streams, never in Latest Videos */
 const STREAM_IDS = new Set(STREAMS.map((s) => s.id));
 
 /* ─── DOM refs ───────────────────────────────────────────────────────── */
@@ -82,6 +70,10 @@ function parseYouTubeXml(xml) {
   });
 }
 
+/* Cache (5 min TTL) */
+const CACHE_KEY = "essk_v7";
+const CACHE_TTL = 5 * 60 * 1000;
+
 function cacheGet(key, ttl) {
   try { const { ts, data } = JSON.parse(localStorage.getItem(key) || "{}"); return Date.now() - ts < ttl ? data : null; } catch { return null; }
 }
@@ -90,20 +82,14 @@ function cacheSet(key, data) {
   try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data })); } catch {}
 }
 
-/* Clear ALL old cache */
-["essk_videos", "essk_videos_v2", "essk_videos_v3", "essk_v4"].forEach((k) => { try { localStorage.removeItem(k); } catch {} });
-
 /* ─── Data fetching ──────────────────────────────────────────────────── */
 
-/* Remove streams from video list — they go to the Streams section only */
 function filterOutStreams(videos) {
- const filtered = videos.filter((v) => !STREAM_IDS.has(v.id));
- const removed = videos.length - filtered.length;
- if (removed > 0) console.log(`[EssKey] Filtered out ${removed} stream(s) from Videos → Streams only`);
- return filtered;
+  const filtered = videos.filter((v) => !STREAM_IDS.has(v.id));
+  if (filtered.length < videos.length) console.log(`[EssKey] Filtered ${videos.length - filtered.length} stream(s)`);
+  return filtered;
 }
 
-/* Fetch a single source with timeout */
 async function trySource(src) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 12000);
@@ -113,10 +99,10 @@ async function trySource(src) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     let videos = await src.parse(data);
-    if (videos.length === 0) throw new Error("No videos");
+    if (!videos.length) throw new Error("No videos");
     videos = filterOutStreams(videos);
-    if (videos.length === 0) throw new Error("Only streams");
-    console.log(`[EssKey] ${src.name} OK — ${videos.length} videos (no streams)`);
+    if (!videos.length) throw new Error("Only streams");
+    console.log(`[EssKey] ${src.name} OK — ${videos.length} videos`);
     return videos;
   } catch (err) {
     clearTimeout(timer);
@@ -125,16 +111,31 @@ async function trySource(src) {
   }
 }
 
-/* Fetch all sources in parallel — first success wins */
 async function fetchYouTubeVideos() {
-  const attempts = DATA_SOURCES.map((src) =>
-    trySource(src).catch(() => null)
-  );
-  const results = await Promise.all(attempts);
-  for (let i = 0; i < results.length; i++) {
-    if (results[i]) return results[i];
+  /* Try cache first */
+  const cached = cacheGet(CACHE_KEY, CACHE_TTL);
+  if (cached?.length) {
+    console.log(`[EssKey] Using cache (${Math.round(CACHE_TTL / 60000)}min TTL)`);
+    return cached;
   }
+  /* Fetch all in parallel */
+  const results = await Promise.all(DATA_SOURCES.map((s) => trySource(s).catch(() => null)));
+  for (const r of results) if (r) { cacheSet(CACHE_KEY, r); return r; }
   throw new Error("All sources failed");
+}
+
+/* ─── Skeleton loader ────────────────────────────────────────────────── */
+
+function renderSkeletons(container, count) {
+  for (let i = 0; i < count; i++) {
+    const s = document.createElement("div");
+    s.className = "skeleton-card";
+    container.appendChild(s);
+  }
+}
+
+function clearSkeletons(container) {
+  container.querySelectorAll(".skeleton-card").forEach((s) => s.remove());
 }
 
 /* ─── Render helpers ─────────────────────────────────────────────────── */
@@ -157,12 +158,14 @@ function appendMediaCard(container, { id, title, url, thumbnail }) {
 }
 
 function renderVideos(videos) {
+  clearSkeletons($videoList);
   $videoList.innerHTML = "";
   if ($videoFlyout) $videoFlyout.innerHTML = "";
   for (const v of videos) { appendMediaCard($videoList, v); if ($videoFlyout) appendFlyoutLink($videoFlyout, v); }
 }
 
 function renderStreams(streams) {
+  if ($liveList && !streams.length) { $liveList.innerHTML = '<p class="live-empty">No active streams</p>'; return; }
   $liveList.innerHTML = "";
   if ($liveFlyout) $liveFlyout.innerHTML = "";
   for (const s of streams) { appendMediaCard($liveList, s); if ($liveFlyout) appendFlyoutLink($liveFlyout, s); }
@@ -172,36 +175,14 @@ function renderStreams(streams) {
 
 const revealObs = new IntersectionObserver((entries) => {
   for (const e of entries) { if (e.isIntersecting) { e.target.classList.add("is-visible"); revealObs.unobserve(e.target); } }
-}, { threshold: 0.12 });
+}, { threshold: 0.1 });
 
 function observeReveal(el) { revealObs.observe(el); }
 
 document.querySelectorAll(".reveal").forEach((el, i) => {
-  el.style.transitionDelay = `${Math.min(i * 60, 280)}ms`;
+  el.style.transitionDelay = `${Math.min(i * 50, 200)}ms`;
   revealObs.observe(el);
 });
-
-/* ─── Background video (lazy) ────────────────────────────────────────── */
-
-const $bgVideo = document.querySelector(".page-bg-video");
-const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-let bgVideoInit = false;
-
-function initBgVideo() {
-  if (bgVideoInit || !$bgVideo || reducedMotion) return;
-  bgVideoInit = true;
-  const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-  if (conn?.saveData || /(?:^|slow-)2g/.test(conn?.effectiveType || "")) return;
-  const src = $bgVideo.dataset.src;
-  if (!src) return;
-  const s = document.createElement("source"); s.src = src; s.type = "video/mp4";
-  $bgVideo.appendChild(s); $bgVideo.load();
-  $bgVideo.play().catch(() => {
-    const retry = () => $bgVideo.play().catch(() => {});
-    document.addEventListener("touchstart", retry, { once: true, passive: true });
-    document.addEventListener("click", retry, { once: true, passive: true });
-  });
-}
 
 /* ─── Contact form ───────────────────────────────────────────────────── */
 
@@ -234,85 +215,57 @@ const $playerPlayBtn = document.getElementById("playerPlayBtn");
 let ytPlayer = null;
 let didStartPlay = false;
 let pendingVideoId = null;
-let videoQueue = [];        /* videos to try in player */
-let currentVideoIndex = -1; /* which video we're currently trying */
+let videoQueue = [];
+let currentVideoIndex = -1;
 
 function updateFeatured(videoId, videoUrl) {
-  if ($playerFallback) $playerFallback.href = videoUrl;
+  if ($playerFallback) { $playerFallback.href = videoUrl; $playerFallback.classList.remove("is-visible"); }
   if (ytPlayer?.loadVideoById) {
     ytPlayer.loadVideoById(videoId);
-    console.log(`[EssKey] Player loading: ${videoId}`);
   } else {
     pendingVideoId = videoId;
-    console.log(`[EssKey] Pending video: ${videoId} (player not ready)`);
   }
 }
 
-/* Try next video in queue if current one fails */
 function tryNextVideo() {
   currentVideoIndex++;
   if (currentVideoIndex >= videoQueue.length) {
-    console.warn("[EssKey] No more videos to try in player");
     $playerFallback?.classList.add("is-visible");
     return;
   }
-  const v = videoQueue[currentVideoIndex];
-  console.log(`[EssKey] Trying video ${currentVideoIndex + 1}/${videoQueue.length}: "${v.title}" (${v.id})`);
-  updateFeatured(v.id, v.url);
+  updateFeatured(videoQueue[currentVideoIndex].id, videoQueue[currentVideoIndex].url);
 }
 
 if ($playerHost) {
   $playerPlayBtn?.addEventListener("click", () => {
     if (!ytPlayer) { ensureYouTubeApi(); return; }
-    ytPlayer.mute();
-    ytPlayer.playVideo();
+    ytPlayer.mute(); ytPlayer.playVideo();
   });
 }
 
-let ytApiRequested = false;
-let ytPlayerBooted = false;
+let ytApiRequested = false, ytPlayerBooted = false;
 
 function bootYouTubePlayer() {
   if (ytPlayerBooted || !window.YT?.Player) return;
   ytPlayerBooted = true;
-
-  /* Use first video from queue, or pending, or fallback */
-  const startId = videoQueue.length > 0 ? videoQueue[0].id : pendingVideoId || FALLBACK_VIDEOS[0].id;
+  const startId = videoQueue.length > 0 ? videoQueue[0].id : pendingVideoId;
+  if (!startId) { $playerFallback?.classList.add("is-visible"); return; }
 
   ytPlayer = new window.YT.Player("featuredPlayer", {
     videoId: startId,
     playerVars: { autoplay: 1, controls: 1, rel: 0, playsinline: 1, modestbranding: 1 },
     events: {
-      onReady(e) {
-        console.log("[EssKey] Player ready");
-        e.target.mute();
-        e.target.playVideo();
-      },
+      onReady(e) { e.target.mute(); e.target.playVideo(); },
       onStateChange(e) {
         const S = window.YT.PlayerState;
-        if (e.data === S.PLAYING) {
-          didStartPlay = true;
-          $playerFallback?.classList.remove("is-visible");
-          $playerPlayBtn?.classList.remove("is-visible");
-        } else if (e.data === S.PAUSED || e.data === S.UNSTARTED) {
-          $playerPlayBtn?.classList.add("is-visible");
-        }
+        if (e.data === S.PLAYING) { didStartPlay = true; $playerFallback?.classList.remove("is-visible"); $playerPlayBtn?.classList.remove("is-visible"); }
+        else if (e.data === S.PAUSED || e.data === S.UNSTARTED) { $playerPlayBtn?.classList.add("is-visible"); }
       },
-      /* If video is unplayable (live stream, private, etc.), try next one */
-      onError(e) {
-        console.warn(`[EssKey] Player error code ${e.data} for video ${currentVideoIndex + 1} — trying next`);
-        tryNextVideo();
-      },
+      onError() { tryNextVideo(); },
     },
   });
 
-  /* Show fallback button if nothing plays after 3s */
-  setTimeout(() => {
-    if (!didStartPlay) {
-      $playerFallback?.classList.add("is-visible");
-      $playerPlayBtn?.classList.add("is-visible");
-    }
-  }, 3000);
+  setTimeout(() => { if (!didStartPlay) { $playerFallback?.classList.add("is-visible"); $playerPlayBtn?.classList.add("is-visible"); } }, 3000);
 }
 
 function ensureYouTubeApi() {
@@ -327,92 +280,59 @@ function ensureYouTubeApi() {
 function initPlayerLazy() {
   if (!$playerHost) return;
   if ("IntersectionObserver" in window) {
-    const obs = new IntersectionObserver(
-      (entries, o) => { if (entries.some((e) => e.isIntersecting)) { ensureYouTubeApi(); o.disconnect(); } },
-      { rootMargin: "200px 0px" }
-    );
-    obs.observe($playerHost);
+    new IntersectionObserver((entries, o) => { if (entries.some((e) => e.isIntersecting)) { ensureYouTubeApi(); o.disconnect(); } }, { rootMargin: "300px 0px" }).observe($playerHost);
   } else {
-    setTimeout(() => ensureYouTubeApi(), 400);
+    setTimeout(() => ensureYouTubeApi(), 500);
   }
 }
 
 /* ─── Bootstrap ──────────────────────────────────────────────────────── */
 
-/* 1. Show fallback immediately */
-renderVideos(FALLBACK_VIDEOS);
+/* 1. Show skeletons while loading */
+renderSkeletons($videoList, 6);
 renderStreams(STREAMS);
 
-/* 2. Fetch latest videos and set up everything */
-const CACHE_KEY = "essk_v6";
-/* Clear ALL old cache versions so fresh data loads */
-["essk_videos", "essk_videos_v2", "essk_videos_v3", "essk_v4", "essk_v5"].forEach((k) => { try { localStorage.removeItem(k); } catch {} });
-
+/* 2. Fetch videos */
 const videosPromise = fetchYouTubeVideos()
   .then((videos) => {
-    console.log(`[EssKey] Loaded ${videos.length} videos. Latest: "${videos[0].title}" (${videos[0].id})`);
-
-    /* Render all videos in the grid */
+    console.log(`[EssKey] Loaded ${videos.length} videos. Latest: "${videos[0]?.title}" (${videos[0]?.id})`);
     renderVideos(videos);
-    cacheSet(CACHE_KEY, videos);
-
-    /* Set up video queue for featured player */
     videoQueue = videos;
     currentVideoIndex = 0;
-
-    /* Update featured player with first video */
-    updateFeatured(videos[0].id, videos[0].url);
-
+    if (videos[0]) updateFeatured(videos[0].id, videos[0].url);
     return videos;
   })
   .catch((err) => {
     console.warn("[EssKey] All sources failed:", err.message);
-    const cached = cacheGet(CACHE_KEY, 30 * 60 * 1000);
-    if (cached?.length) {
-      console.log(`[EssKey] Using cache: "${cached[0].title}"`);
-      renderVideos(cached);
-      videoQueue = cached;
-      currentVideoIndex = 0;
-      updateFeatured(cached[0].id, cached[0].url);
-      return cached;
-    }
-    console.log(`[EssKey] Using fallback: "${FALLBACK_VIDEOS[0].title}"`);
-    videoQueue = FALLBACK_VIDEOS;
-    currentVideoIndex = 0;
-    updateFeatured(FALLBACK_VIDEOS[0].id, FALLBACK_VIDEOS[0].url);
-    return FALLBACK_VIDEOS;
+    clearSkeletons($videoList);
+    $videoList.innerHTML = '<p class="live-empty">Unable to load videos. Try refreshing.</p>';
+    return [];
   });
 
-/* 3. Preloader */
+/* 3. Minimal preloader (fonts + data) */
 (function runPreloader(promise) {
   if (!$preloader || !$preloaderBar || !$preloaderPct) { document.body.classList.remove("is-loading"); return; }
-  let current = 0, target = 6;
-  const start = performance.now(), minMs = 700, maxMs = 1800;
+  let current = 0, target = 30;
   const tick = () => {
-    current += (target - current) * 0.12;
-    if (target - current < 0.3) current = target;
+    current += (target - current) * 0.15;
+    if (target - current < 0.5) current = target;
     const pct = Math.round(Math.min(100, current));
     $preloaderBar.style.width = `${pct}%`;
     $preloaderPct.textContent = `${pct}%`;
     if (pct < 100) requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
-  target = 35;
-  const fontsReady = (document.fonts?.ready?.then(() => { target = Math.max(target, 68); }) ?? Promise.resolve());
-  const videosReady = promise.finally(() => { target = Math.max(target, 90); });
-  const ready = Promise.allSettled([fontsReady, videosReady]).then(() => {
-    const wait = Math.max(0, minMs - (performance.now() - start));
-    return new Promise((r) => setTimeout(() => { target = 100; setTimeout(r, 180); }, wait));
-  });
-  const hardStop = new Promise((r) => setTimeout(() => { target = 100; setTimeout(r, 180); }, maxMs));
+  target = 60;
+  const ready = Promise.allSettled([
+    document.fonts?.ready?.then(() => { target = Math.max(target, 85); }) ?? Promise.resolve(),
+    promise.finally(() => { target = 100; }),
+  ]).then(() => new Promise((r) => setTimeout(r, 120)));
+  const hardStop = new Promise((r) => setTimeout(() => { target = 100; setTimeout(r, 120); }, 1200));
   Promise.race([ready, hardStop]).then(() => {
     $preloader.classList.add("is-hidden");
     document.body.classList.remove("is-loading");
   });
 })(videosPromise);
 
-/* 4. Init heavy resources after preloader */
-videosPromise.then(() => {
-  initBgVideo();
-  initPlayerLazy();
-});
+/* 4. Init YouTube player after preloader */
+videosPromise.then(() => initPlayerLazy());
