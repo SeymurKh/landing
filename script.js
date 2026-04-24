@@ -3,25 +3,20 @@
 const CHANNEL_ID = "UCa9kWM8BbmFi5OpXbjyqk9w";
 const RSS_URL = `https://www.youtube.com/feeds/videos.xml?channel_id=${CHANNEL_ID}`;
 
-/* Multiple data sources — tried in order until one works */
+/* Data sources — fetched IN PARALLEL, first successful result wins */
 const DATA_SOURCES = [
-  /* 1. AllOrigins CORS proxy — fresh data from YouTube (no server-side cache) */
+  /* AllOrigins — fresh data directly from YouTube (no server cache) */
   {
+    name: "AllOrigins",
     url: `https://api.allorigins.win/get?url=${encodeURIComponent(RSS_URL)}`,
     async parse(json) {
       if (!json.contents) throw new Error("No contents");
       return parseYouTubeXml(json.contents);
     },
   },
-  /* 2. corsproxy.io — alternative CORS proxy */
+  /* rss2json.com — backup (may cache 15-30 min) */
   {
-    url: `https://corsproxy.io/?url=${encodeURIComponent(RSS_URL)}`,
-    async parse(text) {
-      return parseYouTubeXml(text);
-    },
-  },
-  /* 3. rss2json.com — reliable fallback (may cache 15-30 min) */
-  {
+    name: "rss2json",
     url: `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(RSS_URL)}`,
     parse(json) {
       if (!json.items?.length) throw new Error("No items");
@@ -108,29 +103,36 @@ function filterOutStreams(videos) {
  return filtered;
 }
 
+/* Fetch a single source with timeout */
+async function trySource(src) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 12000);
+  try {
+    const res = await fetch(src.url, { signal: ctl.signal });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    let videos = await src.parse(data);
+    if (videos.length === 0) throw new Error("No videos");
+    videos = filterOutStreams(videos);
+    if (videos.length === 0) throw new Error("Only streams");
+    console.log(`[EssKey] ${src.name} OK — ${videos.length} videos (no streams)`);
+    return videos;
+  } catch (err) {
+    clearTimeout(timer);
+    console.warn(`[EssKey] ${src.name} failed:`, err.message);
+    throw err;
+  }
+}
+
+/* Fetch all sources in parallel — first success wins */
 async function fetchYouTubeVideos() {
-  for (let i = 0; i < DATA_SOURCES.length; i++) {
-    const src = DATA_SOURCES[i];
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), 5000);
-    try {
-      const res = await fetch(src.url, { signal: ctl.signal });
-      clearTimeout(timer);
-      if (!res.ok) continue;
-      const data = await res.json();
-      let videos = await src.parse(data);
-      if (videos.length > 0) {
-        /* Remove streams — they appear only in Streams section */
-        videos = filterOutStreams(videos);
-        if (videos.length > 0) {
-          console.log(`[EssKey] Source #${i + 1} OK — ${videos.length} videos (no streams)`);
-          return videos;
-        }
-      }
-    } catch (err) {
-      clearTimeout(timer);
-      console.warn(`[EssKey] Source #${i + 1} failed:`, err.message);
-    }
+  const attempts = DATA_SOURCES.map((src) =>
+    trySource(src).catch(() => null)
+  );
+  const results = await Promise.all(attempts);
+  for (let i = 0; i < results.length; i++) {
+    if (results[i]) return results[i];
   }
   throw new Error("All sources failed");
 }
@@ -342,9 +344,9 @@ renderVideos(FALLBACK_VIDEOS);
 renderStreams(STREAMS);
 
 /* 2. Fetch latest videos and set up everything */
-const CACHE_KEY = "essk_v5";
-/* Clear old cache versions */
-["essk_videos", "essk_videos_v2", "essk_videos_v3", "essk_v4"].forEach((k) => { try { localStorage.removeItem(k); } catch {} });
+const CACHE_KEY = "essk_v6";
+/* Clear ALL old cache versions so fresh data loads */
+["essk_videos", "essk_videos_v2", "essk_videos_v3", "essk_v4", "essk_v5"].forEach((k) => { try { localStorage.removeItem(k); } catch {} });
 
 const videosPromise = fetchYouTubeVideos()
   .then((videos) => {
