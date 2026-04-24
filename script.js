@@ -1,6 +1,6 @@
 /* ─── Config ─────────────────────────────────────────────────────────── */
 
-const CHANNEL_ID = "UCa9kWM8BbmFi5OpXbjyqk9w";
+const CHANNEL_ID = "UCZ8HkMxPRqBJBXR0iPGjuGQ";
 const RSS_URL = `https://www.youtube.com/feeds/videos.xml?channel_id=${CHANNEL_ID}`;
 
 /* Multiple data sources — tried in order until one works */
