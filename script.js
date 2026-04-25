@@ -1,12 +1,35 @@
-/* ─── Config ─────────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   EssKeyMusic — Landing Page Script
+   ═══════════════════════════════════════════════════════════════════════════
+
+   Structure:
+     1. Config & Data Sources
+     2. DOM References
+     3. Utility Functions
+     4. Data Fetching (RSS → Latest Videos)
+     5. Rendering (cards, skeletons, show-more)
+     6. Scroll Reveal Animation
+     7. Background Video Fallback
+     8. Featured YouTube Player
+     9. Contact Form
+    10. Preloader
+    11. Parallax
+    12. Bootstrap (entry point)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+
+/* ─── 1. Config & Data Sources ─────────────────────────────────────────── */
 
 const CHANNEL_ID = "UCa9kWM8BbmFi5OpXbjyqk9w";
-const RSS_URL = `https://www.youtube.com/feeds/videos.xml?channel_id=${CHANNEL_ID}`;
+const RSS_URL    = `https://www.youtube.com/feeds/videos.xml?channel_id=${CHANNEL_ID}`;
 
-/* How many video cards to show before "Show more" */
-const VISIBLE_COUNT = 6;
+/* How many video cards are visible before "Show all" */
+const VISIBLE_VIDEO_COUNT = 6;
 
-/* Data sources — fetched IN PARALLEL */
+/*
+ * Two RSS proxy sources fetched in parallel via Promise.any.
+ * First successful response wins. Each has a 12s timeout.
+ */
 const DATA_SOURCES = [
   {
     name: "AllOrigins",
@@ -21,10 +44,11 @@ const DATA_SOURCES = [
     url: `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(RSS_URL)}`,
     parse(json) {
       if (!json.items?.length) throw new Error("No items");
+      /* rss2json returns ALL videos from the feed — no limit */
       return json.items.map((item) => ({
-        id: extractVideoId(item.link),
-        title: item.title,
-        url: item.link,
+        id:        extractVideoId(item.link),
+        title:     item.title,
+        url:       item.link,
         thumbnail: item.thumbnail || item.enclosure?.link || "",
         published: item.pubDate,
       }));
@@ -33,15 +57,17 @@ const DATA_SOURCES = [
 ];
 
 /*
- * Streams — HARDCODED. Update this list manually when new streams go live.
- * YouTube RSS cannot distinguish streams from regular videos.
+ * Streams — HARDCODED.
+ * YouTube RSS cannot distinguish live streams from regular uploads.
+ * Update this array manually when a new stream goes live.
  */
 const STREAMS = [
-  { id: "RJtt_Jd9Uns", title: "RADIO 24/7 | Downtempo for Coding, Work & Inner Flow", url: "https://www.youtube.com/live/RJtt_Jd9Uns", thumbnail: "https://i.ytimg.com/vi/RJtt_Jd9Uns/hqdefault.jpg" },
+  { id: "RJtt_Jd9Uns", title: "RADIO 24/7 | Downtempo for Coding, Work & Inner Flow",           url: "https://www.youtube.com/live/RJtt_Jd9Uns", thumbnail: "https://i.ytimg.com/vi/RJtt_Jd9Uns/hqdefault.jpg" },
   { id: "Y0BSnmYRh_8", title: "RADIO 24/7! Organic House For Deep working, Art & Design Works", url: "https://www.youtube.com/live/Y0BSnmYRh_8", thumbnail: "https://i.ytimg.com/vi/Y0BSnmYRh_8/hqdefault.jpg" },
 ];
 
-/* ─── DOM refs ───────────────────────────────────────────────────────── */
+
+/* ─── 2. DOM References ────────────────────────────────────────────────── */
 
 const $videoList    = document.getElementById("videoList");
 const $videoFlyout  = document.getElementById("videoFlyout");
@@ -50,41 +76,62 @@ const $liveFlyout   = document.getElementById("liveFlyout");
 const $preloader    = document.getElementById("preloader");
 const $preloaderBar = document.getElementById("preloaderBar");
 const $preloaderPct = document.getElementById("preloaderPercent");
-const $videoSection = document.getElementById("videos");
 
-/* ─── Helpers ────────────────────────────────────────────────────────── */
 
-function coverUrl(id) { return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`; }
+/* ─── 3. Utility Functions ─────────────────────────────────────────────── */
 
-function extractVideoId(url) {
-  const m = url.match(/(?:v=|youtu\.be\/|\/videos\/)([a-zA-Z0-9_-]{11})/);
-  return m ? m[1] : "";
+/** Build a YouTube thumbnail URL from a video ID */
+function coverUrl(id) {
+  return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
 }
 
+/** Extract 11-char YouTube video ID from various URL formats */
+function extractVideoId(url) {
+  const match = url.match(/(?:v=|youtu\.be\/|\/videos\/)([a-zA-Z0-9_-]{11})/);
+  return match ? match[1] : "";
+}
+
+/** Parse raw YouTube Atom XML into an array of video objects */
 function parseYouTubeXml(xml) {
   const doc = new DOMParser().parseFromString(xml, "text/xml");
   const entries = [...doc.querySelectorAll("entry")];
   if (!entries.length) throw new Error("No entries in XML");
   return entries.map((e) => {
     const id = e.querySelector("videoId")?.textContent || "";
-    return { id, title: e.querySelector("title")?.textContent || "", url: `https://youtu.be/${id}`, thumbnail: coverUrl(id), published: e.querySelector("published")?.textContent || "" };
+    return {
+      id,
+      title:     e.querySelector("title")?.textContent || "",
+      url:       `https://youtu.be/${id}`,
+      thumbnail: coverUrl(id),
+      published: e.querySelector("published")?.textContent || "",
+    };
   });
 }
 
-/* Cache */
-const CACHE_KEY = "essk_v12";
-const CACHE_TTL = 3 * 60 * 1000;
+
+/* ─── 3b. Local Storage Cache ──────────────────────────────────────────── */
+
+const CACHE_KEY = "essk_v13";
+const CACHE_TTL = 3 * 60 * 1000; // 3 minutes
 
 function cacheGet(key, ttl) {
-  try { const { ts, data } = JSON.parse(localStorage.getItem(key) || "{}"); return Date.now() - ts < ttl ? data : null; } catch { return null; }
+  try {
+    const { ts, data } = JSON.parse(localStorage.getItem(key) || "{}");
+    return Date.now() - ts < ttl ? data : null;
+  } catch { return null; }
 }
 
 function cacheSet(key, data) {
   try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data })); } catch {}
 }
 
-/* ─── Data fetching ──────────────────────────────────────────────────── */
 
+/* ─── 4. Data Fetching (RSS) ───────────────────────────────────────────── */
+
+/**
+ * Try a single RSS data source. Aborts after 12s.
+ * Returns array of video objects on success, throws on failure.
+ */
 async function trySource(src) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 12000);
@@ -95,199 +142,301 @@ async function trySource(src) {
     const data = await res.json();
     const videos = await src.parse(data);
     if (!videos.length) throw new Error("No videos");
-    console.log(`[EssKey] ${src.name} OK — ${videos.length} videos`);
     return videos;
   } catch (err) {
     clearTimeout(timer);
-    console.warn(`[EssKey] ${src.name} failed:`, err.message);
     throw err;
   }
 }
 
+/**
+ * Fetch latest videos. Strategy:
+ *  1. Check localStorage cache (3 min TTL)
+ *  2. Try AllOrigins + rss2json in parallel (Promise.any)
+ *  3. Filter out "RADIO 24/7" entries (those are streams)
+ *  4. Cache the filtered result
+ */
 async function fetchYouTubeVideos() {
+  /* 1. Cache hit? */
   const cached = cacheGet(CACHE_KEY, CACHE_TTL);
-  if (cached?.length) {
-    console.log(`[EssKey] Using cache (${Math.round(CACHE_TTL / 60000)}min TTL)`);
-    return cached;
-  }
-  const results = await Promise.all(DATA_SOURCES.map((s) => trySource(s).catch(() => null)));
-  for (const r of results) if (r) {
-    /* Filter out streams — all start with "RADIO 24/7" */
+  if (cached?.length) return cached;
+
+  /* 2. Try both sources in parallel — first success wins */
+  const results = await Promise.all(
+    DATA_SOURCES.map((s) => trySource(s).catch((err) => {
+      console.warn(`[EssKey] ${s.name} failed:`, err.message);
+      return null;
+    }))
+  );
+  for (const r of results) {
+    if (!r) continue;
+    /* 3. Filter streams (all start with "RADIO 24/7") */
     const filtered = r.filter((v) => !v.title.toUpperCase().startsWith("RADIO 24/7"));
-    if (filtered.length) { cacheSet(CACHE_KEY, filtered); return filtered; }
+    if (filtered.length) {
+      /* 4. Cache before returning */
+      cacheSet(CACHE_KEY, filtered);
+      return filtered;
+    }
   }
-  throw new Error("All sources failed");
+  throw new Error("All RSS sources failed");
 }
 
-/* ─── Skeleton loader ────────────────────────────────────────────────── */
 
+/* ─── 5. Rendering ─────────────────────────────────────────────────────── */
+
+/** Show placeholder shimmer cards while data loads */
 function renderSkeletons(container, count) {
   for (let i = 0; i < count; i++) {
-    const s = document.createElement("div");
-    s.className = "skeleton-card";
-    container.appendChild(s);
+    const el = document.createElement("div");
+    el.className = "skeleton-card";
+    container.appendChild(el);
   }
 }
 
+/** Remove all skeleton cards from a container */
 function clearSkeletons(container) {
   container.querySelectorAll(".skeleton-card").forEach((s) => s.remove());
 }
 
-/* ─── Render helpers ─────────────────────────────────────────────────── */
-
+/** Add a text link to a flyout dropdown */
 function appendFlyoutLink(flyout, { title, url }) {
   const a = document.createElement("a");
-  a.className = "flyout-link"; a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; a.textContent = title;
+  a.className   = "flyout-link";
+  a.href        = url;
+  a.target      = "_blank";
+  a.rel         = "noopener noreferrer";
+  a.textContent = title;
   flyout.appendChild(a);
 }
 
-function appendMediaCard(container, { id, title, url, thumbnail }) {
+/** Create and append a media card to a grid container. Returns the card element. */
+function appendMediaCard(container, video) {
+  const { id, title, url, thumbnail } = video;
   const bg = thumbnail || coverUrl(id);
+
   const card = document.createElement("article");
   card.className = "media-card reveal";
   card.style.setProperty("--bg", `url('${bg}')`);
   card.addEventListener("click", () => window.open(url, "_blank", "noopener"));
-  card.insertAdjacentHTML("beforeend", `<div class="media-card-body"><h3 class="media-title">${title}</h3><a class="btn btn-line" href="${url}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Watch</a></div>`);
+  card.insertAdjacentHTML(
+    "beforeend",
+    `<div class="media-card-body">
+      <h3 class="media-title">${title}</h3>
+      <a class="btn btn-line" href="${url}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Watch</a>
+    </div>`
+  );
   container.appendChild(card);
   observeReveal(card);
   return card;
 }
 
+/**
+ * Render the Latest Videos grid.
+ * Shows first VISIBLE_VIDEO_COUNT cards, hides the rest.
+ * Adds a "Show all N videos" / "Show less" toggle button.
+ */
 function renderVideos(videos) {
   clearSkeletons($videoList);
   $videoList.innerHTML = "";
   if ($videoFlyout) $videoFlyout.innerHTML = "";
 
-  const cards = [];
-  for (const v of videos) {
-    cards.push(appendMediaCard($videoList, v));
-    if ($videoFlyout) appendFlyoutLink($videoFlyout, v);
+  /* Create all cards */
+  const cards = videos.map((v) => appendMediaCard($videoList, v));
+
+  /* Flyout links (top nav dropdown) — always show all */
+  if ($videoFlyout) {
+    for (const v of videos) appendFlyoutLink($videoFlyout, v);
   }
 
-  /* If more than VISIBLE_COUNT, hide extras and add "Show more" */
-  if (cards.length > VISIBLE_COUNT) {
+  /* If more than VISIBLE_VIDEO_COUNT, hide extras + add toggle button */
+  if (cards.length <= VISIBLE_VIDEO_COUNT) return;
+
+  /* Hide cards beyond the visible limit */
+  cards.forEach((card, i) => {
+    if (i >= VISIBLE_VIDEO_COUNT) card.classList.add("is-hidden-card");
+  });
+
+  /* Remove old toggle button if re-rendering */
+  document.getElementById("showMoreBtn")?.remove();
+
+  /* Create toggle button */
+  const btn = document.createElement("button");
+  btn.id = "showMoreBtn";
+  btn.className = "btn btn-ghost show-more-btn";
+  btn.textContent = `Show all ${videos.length} videos`;
+  let expanded = false;
+
+  btn.addEventListener("click", () => {
+    expanded = !expanded;
     cards.forEach((card, i) => {
-      if (i >= VISIBLE_COUNT) card.classList.add("is-hidden-card");
-    });
-
-    /* Remove old button if exists */
-    const old = document.getElementById("showMoreBtn");
-    if (old) old.remove();
-
-    const btn = document.createElement("button");
-    btn.id = "showMoreBtn";
-    btn.className = "btn btn-ghost show-more-btn";
-    btn.textContent = `Show all ${videos.length} videos`;
-    btn.addEventListener("click", () => {
-      const expanded = btn.dataset.expanded === "1";
-      if (expanded) {
-        cards.forEach((card, i) => {
-          if (i >= VISIBLE_COUNT) card.classList.add("is-hidden-card");
-        });
-        btn.textContent = `Show all ${videos.length} videos`;
-        btn.dataset.expanded = "0";
-      } else {
-        cards.forEach((card) => card.classList.remove("is-hidden-card"));
-        btn.textContent = "Show less";
-        btn.dataset.expanded = "1";
+      if (i >= VISIBLE_VIDEO_COUNT) {
+        card.classList.toggle("is-hidden-card", !expanded);
       }
     });
-    /* Insert button after the grid */
-    $videoList.parentNode.insertBefore(btn, $videoList.nextSibling);
-  }
+    btn.textContent = expanded ? "Show less" : `Show all ${videos.length} videos`;
+  });
+
+  /* Insert button right after the grid */
+  $videoList.parentNode.insertBefore(btn, $videoList.nextSibling);
 }
 
+/** Render the hardcoded Streams grid */
 function renderStreams(streams) {
   $liveList.innerHTML = "";
   if ($liveFlyout) $liveFlyout.innerHTML = "";
-  for (const s of streams) { appendMediaCard($liveList, s); if ($liveFlyout) appendFlyoutLink($liveFlyout, s); }
+  for (const s of streams) {
+    appendMediaCard($liveList, s);
+    if ($liveFlyout) appendFlyoutLink($liveFlyout, s);
+  }
 }
 
-/* ─── Reveal animation ──────────────────────────────────────────────── */
 
-const revealObs = new IntersectionObserver((entries) => {
-  for (const e of entries) { if (e.isIntersecting) { e.target.classList.add("is-visible"); revealObs.unobserve(e.target); } }
-}, { threshold: 0.1 });
+/* ─── 6. Scroll Reveal Animation ───────────────────────────────────────── */
 
-function observeReveal(el) { revealObs.observe(el); }
+/**
+ * Elements with class "reveal" fade in + slide up when they enter the viewport.
+ * Uses IntersectionObserver for performance (no scroll event listener).
+ */
+const revealObs = new IntersectionObserver(
+  (entries) => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) {
+        entry.target.classList.add("is-visible");
+        revealObs.unobserve(entry.target);
+      }
+    }
+  },
+  { threshold: 0.1 }
+);
 
+function observeReveal(el) {
+  revealObs.observe(el);
+}
+
+/* Observe all .reveal elements already in the HTML (hero content, section heads, etc.) */
 document.querySelectorAll(".reveal").forEach((el, i) => {
   el.style.transitionDelay = `${Math.min(i * 50, 200)}ms`;
   revealObs.observe(el);
 });
 
-/* ─── Mobile first-interaction unlock ────────────────────────────────── */
 
-/*
- * Mobile browsers block autoplay until the user interacts with the page.
- * This ONE handler fires on the first touch/click/scroll and:
- *  1. Starts background video
- *  2. Starts featured YouTube player
- * Then removes itself.
+/* ─── 7. Background Video Fallback ─────────────────────────────────────── */
+
+/**
+ * The <video> element in HTML already has autoplay + muted + playsinline
+ * for maximum browser compatibility. This function adds a JS fallback:
+ * if autoplay was blocked by the browser, retry on first user interaction.
  */
-let firstInteractionFired = false;
-
-function onFirstInteraction() {
-  if (firstInteractionFired) return;
-  firstInteractionFired = true;
-
-  /* Start background video */
-  if ($bgVideo && $bgVideo.paused) {
-    $bgVideo.play().catch(() => {});
-  }
-
-  /* Start featured player if not yet playing */
-  if (latestVideos.length && !playerReady) {
-    const v = latestVideos[0];
-    if (ytPlayer) {
-      ytPlayer.playVideo();
-    } else {
-      bootPlayer(v.id, v.url);
-    }
-  }
-
-  console.log("[EssKey] First interaction — unlocked autoplay");
-}
-
-/* ─── Background video ──────────────────────────────────────────────── */
-
 const $pageBg = document.querySelector(".page-bg");
 const $bgVideo = document.querySelector(".page-bg-video");
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-function initBgVideo() {
+function initBgVideoFallback() {
   if (!$bgVideo || reducedMotion) return;
-  const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-  if (conn?.saveData || /(?:^|slow-)2g/.test(conn?.effectiveType || "")) return;
-  const src = $bgVideo.dataset.src;
-  if (!src) return;
-  const s = document.createElement("source"); s.src = src; s.type = "video/mp4";
-  $bgVideo.appendChild(s); $bgVideo.load();
 
-  $bgVideo.play().catch(() => {
-    /* Muted autoplay blocked — will retry on first user interaction */
-    console.log("[EssKey] BG video autoplay blocked, waiting for interaction");
-  });
+  /* If video is already playing, nothing to do */
+  if (!$bgVideo.paused) return;
 
-  /* Register first-interaction handler for bg video */
-  document.addEventListener("touchstart", onFirstInteraction, { once: true, passive: true });
-  document.addEventListener("click", onFirstInteraction, { once: true, passive: true });
+  /* Autoplay was blocked — retry on first user gesture */
+  const retry = () => {
+    $bgVideo.play().catch(() => {});
+    /* Clean up listeners after first attempt */
+    document.removeEventListener("touchstart", retry);
+    document.removeEventListener("click", retry);
+  };
+  document.addEventListener("touchstart", retry, { once: true, passive: true });
+  document.addEventListener("click", retry, { once: true, passive: true });
 }
 
-/* ─── Contact form ───────────────────────────────────────────────────── */
 
-const $form = document.getElementById("contactForm");
+/* ─── 8. Featured YouTube Player ───────────────────────────────────────── */
+
+/*
+ * Strategy: simple iframe with autoplay=1&mute=1.
+ * No fragile YT IFrame API — just a standard embed iframe.
+ * The iframe is created AFTER the preloader is gone (visible context).
+ *
+ * If autoplay is blocked by the browser:
+ *   — YouTube shows its own "Tap to play" inside the iframe.
+ *   — Our pulsing Play button also works as a fallback.
+ *     Each click recreates the iframe (fresh autoplay attempt).
+ */
+
+const $playerHost    = document.getElementById("featuredPlayer");
+const $playerFallback = document.getElementById("playerFallback");
+const $playerPlayBtn  = document.getElementById("playerPlayBtn");
+
+let playerLoaded  = false;  // Whether an iframe has been created
+let latestVideos   = [];     // Populated after RSS fetch
+
+/* Show the Play button immediately — serves as visual fallback */
+if ($playerPlayBtn) $playerPlayBtn.classList.add("is-visible");
+
+/**
+ * Create (or recreate) the YouTube embed iframe.
+ * Safe to call multiple times — each call gives a fresh autoplay attempt.
+ */
+function bootPlayer(videoId, videoUrl) {
+  if (!$playerHost) return;
+  playerLoaded = true;
+  if ($playerFallback) $playerFallback.href = videoUrl;
+
+  /* Clear any existing content */
+  $playerHost.innerHTML = "";
+
+  /* Build the iframe */
+  const iframe = document.createElement("iframe");
+  iframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&controls=1&rel=0&playsinline=1&modestbranding=1`;
+  iframe.allow = "autoplay; encrypted-media";
+  iframe.allowFullscreen = true;
+  iframe.style.cssText = "width:100%;height:100%;border:0;position:absolute;inset:0";
+  $playerHost.appendChild(iframe);
+}
+
+/** Try to auto-boot the player (called after preloader is gone) */
+function tryAutoBoot() {
+  if (latestVideos.length && !playerLoaded) {
+    /* 2 paint frames delay — ensures browser has rendered the page */
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        bootPlayer(latestVideos[0].id, latestVideos[0].url);
+        /* Optimistically hide play button */
+        if ($playerPlayBtn) $playerPlayBtn.classList.remove("is-visible");
+        if ($playerFallback) $playerFallback.classList.add("is-visible");
+      });
+    });
+  }
+}
+
+/* Play button click — user gesture = guaranteed autoplay */
+if ($playerPlayBtn) {
+  $playerPlayBtn.addEventListener("click", () => {
+    if (!latestVideos.length) return;
+    const v = latestVideos[0];
+    /* Recreate iframe (fresh autoplay within user gesture context) */
+    bootPlayer(v.id, v.url);
+    $playerPlayBtn.classList.remove("is-visible");
+    if ($playerFallback) $playerFallback.classList.add("is-visible");
+  });
+}
+
+
+/* ─── 9. Contact Form ──────────────────────────────────────────────────── */
+
+const $form   = document.getElementById("contactForm");
 const $status = document.getElementById("formStatus");
 
 if ($form && $status) {
   $form.addEventListener("submit", (e) => {
     e.preventDefault();
-    const name = $form.querySelector("#name").value.trim();
+    const name  = $form.querySelector("#name").value.trim();
     const email = $form.querySelector("#email").value.trim();
-    const msg = $form.querySelector("#message").value.trim();
+    const msg   = $form.querySelector("#message").value.trim();
+
     if (name.length < 2) { $status.textContent = "Please enter your name."; return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { $status.textContent = "Please enter a valid email."; return; }
-    if (msg.length < 8) { $status.textContent = "Please add a short message."; return; }
+    if (msg.length < 8)  { $status.textContent = "Please add a short message."; return; }
+
     const subj = encodeURIComponent(`EssKey Music Contact Form — ${name}`);
     const body = encodeURIComponent(`Name: ${name}\nEmail: ${email}\n\nMessage:\n${msg}`);
     window.location.href = `mailto:EssKey_YTB@protonmail.com?subject=${subj}&body=${body}`;
@@ -296,230 +445,150 @@ if ($form && $status) {
   });
 }
 
-/* ─── YouTube IFrame API — preload during preloader ─────────────────── */
 
-const $playerHost = document.getElementById("featuredPlayer");
-const $playerFallback = document.getElementById("playerFallback");
-const $playerPlayBtn = document.getElementById("playerPlayBtn");
+/* ─── 10. Preloader ────────────────────────────────────────────────────── */
 
-let ytPlayer = null;
-let playerReady = false;
-let latestVideos = [];
-let pendingVideoId = null;
-let pendingVideoUrl = null;
-
-/*
- * Preload the YouTube IFrame API script.
- * Resolves when window.YT.Player is available.
+/**
+ * Smooth milestone-based preloader.
+ * Phases: 0→40% (random ramp) → 60% (fonts ready) → 100% (data ready).
+ * Returns a Promise that resolves AFTER the preloader is fully hidden.
+ *
+ * Safety timeout: 8s max — reveals the page even if data never arrives.
  */
-const ytApiReady = new Promise((resolve) => {
-  if (window.YT && window.YT.Player && window.YT.Player.prototype.loadVideoById) {
-    resolve();
-    return;
-  }
-  window.onYouTubeIframeAPIReady = function () {
-    console.log("[EssKey] YouTube IFrame API ready");
-    resolve();
-  };
-  const tag = document.createElement("script");
-  tag.src = "https://www.youtube.com/iframe_api";
-  tag.async = true;
-  document.head.appendChild(tag);
-  setTimeout(resolve, 4000);
-});
-
-/* Show play button immediately — acts as tap-to-play fallback */
-if ($playerPlayBtn) $playerPlayBtn.classList.add("is-visible");
-
-function bootPlayer(videoId, videoUrl) {
-  if (!$playerHost || ytPlayer) return;
-  if ($playerFallback) $playerFallback.href = videoUrl;
-  pendingVideoId = videoId;
-  pendingVideoUrl = videoUrl;
-
-  ytApiReady.then(() => {
-    const el = document.getElementById("featuredPlayer");
-    if (!el) return;
-
-    ytPlayer = new YT.Player("featuredPlayer", {
-      width: "100%",
-      height: "100%",
-      videoId: videoId,
-      playerVars: {
-        autoplay: 1,
-        mute: 1,
-        controls: 1,
-        rel: 0,
-        playsinline: 1,
-        modestbranding: 1,
-        origin: location.origin,
-      },
-      events: {
-        onReady: function (e) {
-          playerReady = true;
-          console.log("[EssKey] YT player ready — calling playVideo()");
-          e.target.playVideo();
-          if ($playerPlayBtn) $playerPlayBtn.classList.remove("is-visible");
-          if ($playerFallback) $playerFallback.classList.add("is-visible");
-        },
-        onError: function (e) {
-          console.warn("[EssKey] YT player error code:", e.data);
-          if ($playerPlayBtn) $playerPlayBtn.classList.add("is-visible");
-        },
-        onStateChange: function (e) {
-          /* YT.PlayerState.PLAYING === 1 */
-          if (e.data === 1) {
-            if ($playerPlayBtn) $playerPlayBtn.classList.remove("is-visible");
-            if ($playerFallback) $playerFallback.classList.add("is-visible");
-          }
-          /* PAUSED (2) or ENDED (0) — show play btn */
-          if (e.data === 2 || e.data === 0) {
-            if ($playerPlayBtn) $playerPlayBtn.classList.add("is-visible");
-          }
-        },
-      },
-    });
-  });
-}
-
-/* Manual play button — user gesture = guaranteed autoplay everywhere */
-if ($playerPlayBtn) {
-  $playerPlayBtn.addEventListener("click", () => {
-    onFirstInteraction(); /* Also unlocks bg video */
-    if (!latestVideos.length) return;
-    const v = latestVideos[0];
-    if (playerReady && ytPlayer) {
-      ytPlayer.playVideo();
-      $playerPlayBtn.classList.remove("is-visible");
-    } else {
-      bootPlayer(v.id, v.url);
-    }
-  });
-}
-
-/* ─── Preloader — smooth milestone-based ────────────────────────────── */
-
 function runPreloader(fontsReady, dataReady) {
   if (!$preloader || !$preloaderBar || !$preloaderPct) {
     document.body.classList.remove("is-loading");
-    return Promise.resolve([]);
+    return Promise.resolve();
   }
 
-  let pct = 0;
+  let pct      = 0;
   let finished = false;
   let resolveFn;
   const done = new Promise((r) => { resolveFn = r; });
 
   function setPct(v) {
-    pct = Math.round(Math.min(v, 100));
+    pct = Math.min(Math.round(v), 100);
     $preloaderBar.style.width = pct + "%";
     $preloaderPct.textContent = pct + "%";
   }
 
-  function finish(videos) {
+  /** Reveal the page — can only run once */
+  function reveal() {
     if (finished) return;
     finished = true;
     setPct(100);
     $preloader.classList.add("is-hidden");
     document.body.classList.remove("is-loading");
-    setTimeout(() => {
-      resolveFn(videos || []);
-    }, 600);
+    /* Wait for CSS fade-out transition (300ms) + extra buffer */
+    setTimeout(resolveFn, 600);
   }
 
+  /* Phase 1: Random ramp 0 → 40% while waiting */
   const ramp = setInterval(() => {
     pct += Math.random() * 5 + 1;
     if (pct > 40) pct = 40;
     setPct(pct);
   }, 120);
 
+  /* Phase 2: Fonts loaded → jump to 60% */
   fontsReady.then(() => {
     clearInterval(ramp);
     if (pct < 60) setPct(60);
   });
 
-  dataReady.then((videos) => {
+  /* Phase 3: Data loaded → smooth easeOutCubic to 100% → reveal */
+  dataReady.then(() => {
     clearInterval(ramp);
-    const from = Math.max(pct, 60);
-    const start = performance.now();
+    const from    = Math.max(pct, 60);
+    const start   = performance.now();
     const duration = 500;
     function animate(now) {
-      const t = Math.min((now - start) / duration, 1);
-      const ease = 1 - Math.pow(1 - t, 3);
+      const t    = Math.min((now - start) / duration, 1);
+      const ease = 1 - Math.pow(1 - t, 3); // easeOutCubic
       setPct(from + (100 - from) * ease);
       if (t < 1) {
         requestAnimationFrame(animate);
       } else {
-        finish(videos);
+        reveal();
       }
     }
     requestAnimationFrame(animate);
   }).catch(() => {
-    finish([]);
+    reveal(); // Even if data fails, reveal the page
   });
 
-  setTimeout(() => finish([]), 7000);
+  /* Safety: reveal after 8s regardless */
+  setTimeout(reveal, 8000);
 
   return done;
 }
 
-/* ─── Parallax background ────────────────────────────────────────────── */
 
+/* ─── 11. Parallax Background ──────────────────────────────────────────── */
+
+/**
+ * Shifts the background video vertically by 3% of scroll position.
+ * Uses lerp (linear interpolation) for smooth, lag-free movement.
+ * Disabled if user prefers reduced motion.
+ */
 function initParallax() {
   if (!$pageBg || reducedMotion) return;
+
   let currentY = 0;
-  let targetY = 0;
-  let ticking = false;
+  let targetY  = 0;
+  let ticking  = false;
 
   function update() {
-    currentY += (targetY - currentY) * 0.1;
+    currentY += (targetY - currentY) * 0.1; // lerp factor
     if (Math.abs(targetY - currentY) < 0.05) currentY = targetY;
     $pageBg.style.transform = `translate3d(0, ${currentY}px, 0)`;
     ticking = false;
   }
 
   window.addEventListener("scroll", () => {
-    targetY = window.scrollY * 0.03;
-    if (!ticking) { ticking = true; requestAnimationFrame(update); }
+    targetY = window.scrollY * 0.03; // 3% shift
+    if (!ticking) {
+      ticking = true;
+      requestAnimationFrame(update);
+    }
   }, { passive: true });
 }
 
-/* ─── Bootstrap ──────────────────────────────────────────────────────── */
 
-/* 1. Render hardcoded streams immediately */
+/* ─── 12. Bootstrap (Entry Point) ──────────────────────────────────────── */
+
+/* 1. Render hardcoded streams immediately (no network needed) */
 renderStreams(STREAMS);
 
-/* 2. Show skeletons for videos */
-renderSkeletons($videoList, 6);
+/* 2. Show skeleton placeholders while RSS loads */
+renderSkeletons($videoList, VISIBLE_VIDEO_COUNT);
 
-/* 3. Fetch RSS for Latest Videos */
+/* 3. Start fetching RSS data */
 const fontsReady = document.fonts?.ready || Promise.resolve();
 
 const dataReady = fetchYouTubeVideos()
   .then((videos) => {
-    console.log(`[EssKey] Loaded ${videos.length} videos. Latest: "${videos[0]?.title}" (${videos[0]?.id})`);
+    console.log(`[EssKey] Loaded ${videos.length} videos. Latest: "${videos[0]?.title}"`);
     latestVideos = videos;
     renderVideos(videos);
     return videos;
   })
   .catch((err) => {
-    console.warn("[EssKey] All sources failed:", err.message);
+    console.warn("[EssKey] RSS fetch failed:", err.message);
     clearSkeletons($videoList);
     $videoList.innerHTML = '<p class="live-empty">Unable to load videos. Try refreshing.</p>';
     return [];
   });
 
-/* 4. Preloader → reveal → init everything */
-runPreloader(fontsReady, dataReady).then((videos) => {
-  initBgVideo();
+/* 4. Run preloader → reveal page → init player */
+runPreloader(fontsReady, dataReady).then(() => {
+  initBgVideoFallback();
   initParallax();
 
-  if (!videos || !videos[0]) return;
-
-  /* Wait 2 paint frames for browser to render */
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      bootPlayer(videos[0].id, videos[0].url);
-    });
-  });
+  /*
+   * Try to auto-boot the featured player.
+   * Also hook into dataReady in case it resolves after the safety timeout.
+   */
+  tryAutoBoot();
+  dataReady.then(tryAutoBoot); // Handles race condition: data arrives after preloader
 });
