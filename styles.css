@@ -306,6 +306,12 @@ main {
 .player-play.is-visible {
   opacity: 1;
   pointer-events: auto;
+  animation: playerPulse 2.2s ease-in-out infinite;
+}
+
+@keyframes playerPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0.3); }
+  50% { box-shadow: 0 0 0 10px rgba(255,255,255,0); }
 }
 
 .player-play:hover {
@@ -513,6 +519,18 @@ h2 {
   contain: layout paint;
 }
 
+/* Hidden cards for "Show more" — animated collapse */
+.media-card.is-hidden-card {
+  display: none;
+}
+
+.show-more-btn {
+  margin-top: 20px;
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  border-radius: 42px 42px 34px 34px / 52px 52px 30px 30px;
+}
+
 /* Thumbnail */
 .media-card::before {
   content: "";
@@ -554,6 +572,10 @@ h2 {
   line-height: 1.25;
   margin: 0;
   flex: 1;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 /* ─── Live section ───────────────────────────────────────────────────── */
@@ -700,6 +722,11 @@ h2 {
 
   .hero-player {
     width: 100%;
+    max-width: 100%;
+  }
+
+  .brand-name {
+    font-size: 1.25rem;
   }
 }
 
@@ -713,21 +740,22 @@ h2 {
 
 @media (max-width: 640px) {
   .topbar {
-    height: 68px;
+    height: 60px;
     padding-inline: 12px;
+    gap: 12px;
   }
 
   main {
-    padding-top: 68px;
+    padding-top: 60px;
   }
 
   .hero {
-    min-height: calc(100svh - 68px);
+    min-height: calc(100svh - 60px);
   }
 
   .hero-content {
-    padding: 18px;
-    margin-top: 46px;
+    padding: 14px;
+    margin-top: 32px;
   }
 
   h1 {
@@ -750,6 +778,57 @@ h2 {
 
   .media-grid {
     grid-template-columns: 1fr;
+  }
+
+  .brand-mark {
+    width: 36px;
+    height: 36px;
+  }
+
+  .brand-name {
+    font-size: 1.1rem;
+    letter-spacing: 0.08em;
+  }
+
+  .btn-droplet {
+    padding: 8px 14px;
+    font-size: 0.72rem;
+  }
+
+  .hero-player {
+    border-radius: 12px;
+  }
+
+  .player-play {
+    padding: 9px 14px;
+    font-size: 0.72rem;
+  }
+
+  .player-fallback {
+    padding: 7px 11px;
+    font-size: 0.65rem;
+  }
+
+  .section {
+    width: min(var(--max), calc(100% - 24px));
+    padding: clamp(40px, 6vw, 80px) 0;
+  }
+
+  .contact-card,
+  .contact-form {
+    padding: 16px;
+  }
+
+  .media-card-body {
+    padding: 10px 12px;
+  }
+
+  .media-title {
+    font-size: clamp(0.78rem, 2.5vw, 0.95rem);
+  }
+
+  .preloader-percent {
+    font-size: clamp(1.8rem, 8vw, 2.8rem);
   }
 }
 
