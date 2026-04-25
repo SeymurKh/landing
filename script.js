@@ -323,29 +323,33 @@ document.querySelectorAll(".reveal").forEach((el, i) => {
 /* ─── 7. Background Video Fallback ─────────────────────────────────────── */
 
 /**
- * The <video> element in HTML already has autoplay + muted + playsinline
- * for maximum browser compatibility. This function adds a JS fallback:
- * if autoplay was blocked by the browser, retry on first user interaction.
+ * The <video> element in HTML has autoplay + muted + playsinline attributes.
+ * This function runs after the preloader is gone and explicitly calls .play().
+ * On iOS the HTML attributes usually suffice; on Android the JS .play() helps.
+ * Touch/click listener is only the last resort if both fail.
  */
 const $pageBg = document.querySelector(".page-bg");
 const $bgVideo = document.querySelector(".page-bg-video");
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-function initBgVideoFallback() {
+function initBgVideo() {
   if (!$bgVideo || reducedMotion) return;
 
-  /* If video is already playing, nothing to do */
+  /* Already playing from HTML autoplay (e.g. iOS Safari) */
   if (!$bgVideo.paused) return;
 
-  /* Autoplay was blocked — retry on first user gesture */
-  const retry = () => {
-    $bgVideo.play().catch(() => {});
-    /* Clean up listeners after first attempt */
-    document.removeEventListener("touchstart", retry);
-    document.removeEventListener("click", retry);
-  };
-  document.addEventListener("touchstart", retry, { once: true, passive: true });
-  document.addEventListener("click", retry, { once: true, passive: true });
+  /* Explicitly call play — works on most Android browsers when video is visible */
+  $bgVideo.play().then(() => {
+    console.log("[EssKey] BG video playing");
+  }).catch(() => {
+    /* Browser blocked autoplay entirely — last resort: wait for any tap */
+    console.log("[EssKey] BG video blocked, waiting for user interaction");
+    const retry = () => {
+      $bgVideo.play().catch(() => {});
+    };
+    document.addEventListener("touchstart", retry, { once: true, passive: true });
+    document.addEventListener("click", retry, { once: true, passive: true });
+  });
 }
 
 
@@ -582,7 +586,7 @@ const dataReady = fetchYouTubeVideos()
 
 /* 4. Run preloader → reveal page → init player */
 runPreloader(fontsReady, dataReady).then(() => {
-  initBgVideoFallback();
+  initBgVideo();
   initParallax();
 
   /*
