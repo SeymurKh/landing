@@ -68,7 +68,7 @@ function parseYouTubeXml(xml) {
 }
 
 /* Cache */
-const CACHE_KEY = "essk_v10";
+const CACHE_KEY = "essk_v11";
 const CACHE_TTL = 3 * 60 * 1000;
 
 function cacheGet(key, ttl) {
@@ -108,7 +108,7 @@ async function fetchYouTubeVideos() {
   }
   const results = await Promise.all(DATA_SOURCES.map((s) => trySource(s).catch(() => null)));
   for (const r of results) if (r) {
-    /* Filter out streams — all start with "RADIO 24/7!" */
+    /* Filter out streams — all start with "RADIO 24/7" */
     const filtered = r.filter((v) => !v.title.toUpperCase().startsWith("RADIO 24/7"));
     if (filtered.length) { cacheSet(CACHE_KEY, filtered); return filtered; }
   }
@@ -217,37 +217,105 @@ if ($form && $status) {
   });
 }
 
-/* ─── Featured player — simple iframe, autoplay after preloader ──────── */
+/* ─── YouTube IFrame API — preload during preloader ─────────────────── */
 
 const $playerHost = document.getElementById("featuredPlayer");
 const $playerFallback = document.getElementById("playerFallback");
 const $playerPlayBtn = document.getElementById("playerPlayBtn");
-let playerLoaded = false;
+
+let ytPlayer = null;
+let playerReady = false;
 let latestVideos = [];
 
-/* Show play button immediately so mobile users can tap it */
+/*
+ * Preload the YouTube IFrame API script.
+ * Resolves when window.YT.Player is available.
+ */
+const ytApiReady = new Promise((resolve) => {
+  /* Already loaded (rare — script in cache from previous visit) */
+  if (window.YT && window.YT.Player && window.YT.Player.prototype.loadVideoById) {
+    resolve();
+    return;
+  }
+  /* Global callback that YouTube's iframe_api script calls */
+  window.onYouTubeIframeAPIReady = function () {
+    console.log("[EssKey] YouTube IFrame API ready");
+    resolve();
+  };
+  const tag = document.createElement("script");
+  tag.src = "https://www.youtube.com/iframe_api";
+  tag.async = true;
+  document.head.appendChild(tag);
+  /* Safety: if the global callback never fires within 4s, resolve anyway */
+  setTimeout(resolve, 4000);
+});
+
+/* Show play button immediately — acts as tap-to-play fallback */
 if ($playerPlayBtn) $playerPlayBtn.classList.add("is-visible");
 
-function loadPlayer(videoId, videoUrl) {
-  if (!$playerHost || playerLoaded) return;
-  playerLoaded = true;
+function bootPlayer(videoId, videoUrl) {
+  if (!$playerHost || ytPlayer) return;
   if ($playerFallback) $playerFallback.href = videoUrl;
-  $playerHost.innerHTML = "";
-  const iframe = document.createElement("iframe");
-  iframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&controls=1&rel=0&playsinline=1&modestbranding=1&enablejsapi=0`;
-  iframe.allow = "autoplay; encrypted-media";
-  iframe.allowFullscreen = true;
-  iframe.style.cssText = "width:100%;height:100%;border:0;position:absolute;inset:0";
-  $playerHost.appendChild(iframe);
-  /* Hide play btn, show fallback link */
-  if ($playerPlayBtn) $playerPlayBtn.classList.remove("is-visible");
-  if ($playerFallback) $playerFallback.classList.add("is-visible");
+
+  ytApiReady.then(() => {
+    /* Ensure the host element still exists ( YT.Player replaces it ) */
+    const el = document.getElementById("featuredPlayer");
+    if (!el) return;
+
+    ytPlayer = new YT.Player("featuredPlayer", {
+      width: "100%",
+      height: "100%",
+      videoId: videoId,
+      playerVars: {
+        autoplay: 1,
+        mute: 1,
+        controls: 1,
+        rel: 0,
+        playsinline: 1,
+        modestbranding: 1,
+        origin: location.origin,
+      },
+      events: {
+        onReady: function (e) {
+          playerReady = true;
+          console.log("[EssKey] YT player ready — calling playVideo()");
+          e.target.playVideo();
+          /* Hide play button, show YouTube fallback link */
+          if ($playerPlayBtn) $playerPlayBtn.classList.remove("is-visible");
+          if ($playerFallback) $playerFallback.classList.add("is-visible");
+        },
+        onError: function (e) {
+          console.warn("[EssKey] YT player error code:", e.data);
+          /* Show play button so user can tap on mobile */
+          if ($playerPlayBtn) $playerPlayBtn.classList.add("is-visible");
+        },
+        onStateChange: function (e) {
+          /* YT.PlayerState.PLAYING === 1 */
+          if (e.data === 1) {
+            if ($playerPlayBtn) $playerPlayBtn.classList.remove("is-visible");
+            if ($playerFallback) $playerFallback.classList.add("is-visible");
+          }
+          /* YT.PlayerState.PAUSED or ENDED — show play btn on mobile */
+          if (e.data === 2 || e.data === 0) {
+            if ($playerPlayBtn) $playerPlayBtn.classList.add("is-visible");
+          }
+        },
+      },
+    });
+  });
 }
 
-/* Manual play button — works on mobile if autoplay is blocked */
+/* Manual play button — user gesture = guaranteed autoplay everywhere */
 if ($playerPlayBtn) {
   $playerPlayBtn.addEventListener("click", () => {
-    if (latestVideos.length) loadPlayer(latestVideos[0].id, latestVideos[0].url);
+    if (!latestVideos.length) return;
+    const v = latestVideos[0];
+    if (playerReady && ytPlayer) {
+      ytPlayer.playVideo();
+      $playerPlayBtn.classList.remove("is-visible");
+    } else {
+      bootPlayer(v.id, v.url);
+    }
   });
 }
 
@@ -274,15 +342,15 @@ function runPreloader(fontsReady, dataReady) {
     if (finished) return;
     finished = true;
     setPct(100);
-    /* Small pause at 100 so user sees it, then reveal */
+    /* Start CSS fade-out, then wait well past the 300ms transition */
+    $preloader.classList.add("is-hidden");
+    document.body.classList.remove("is-loading");
     setTimeout(() => {
-      $preloader.classList.add("is-hidden");
-      document.body.classList.remove("is-loading");
       resolveFn(videos || []);
-    }, 350);
+    }, 600);
   }
 
-  /* Phase 1: smooth ramp 0→40 while waiting for fonts */
+  /* Phase 1: smooth ramp 0→40 while waiting */
   const ramp = setInterval(() => {
     pct += Math.random() * 5 + 1;
     if (pct > 40) pct = 40;
@@ -295,16 +363,15 @@ function runPreloader(fontsReady, dataReady) {
     if (pct < 60) setPct(60);
   });
 
-  /* Phase 3: data ready → smooth animate to 100 → reveal */
+  /* Phase 3: data ready → smooth to 100 → reveal */
   dataReady.then((videos) => {
     clearInterval(ramp);
-    /* Ease-out animation from current % to 100 */
     const from = Math.max(pct, 60);
     const start = performance.now();
     const duration = 500;
     function animate(now) {
       const t = Math.min((now - start) / duration, 1);
-      const ease = 1 - Math.pow(1 - t, 3); /* easeOutCubic */
+      const ease = 1 - Math.pow(1 - t, 3);
       setPct(from + (100 - from) * ease);
       if (t < 1) {
         requestAnimationFrame(animate);
@@ -317,8 +384,8 @@ function runPreloader(fontsReady, dataReady) {
     finish([]);
   });
 
-  /* Safety: 6s max — reveal even if data fails */
-  setTimeout(() => finish([]), 6000);
+  /* Safety: 7s max */
+  setTimeout(() => finish([]), 7000);
 
   return done;
 }
@@ -352,7 +419,7 @@ renderStreams(STREAMS);
 /* 2. Show skeletons for videos */
 renderSkeletons($videoList, 6);
 
-/* 3. Fetch RSS for Latest Videos (player NOT loaded here) */
+/* 3. Fetch RSS for Latest Videos */
 const fontsReady = document.fonts?.ready || Promise.resolve();
 
 const dataReady = fetchYouTubeVideos()
@@ -369,17 +436,22 @@ const dataReady = fetchYouTubeVideos()
     return [];
   });
 
-/* 4. Preloader: smooth 0→100, then reveal site + load player */
+/* 4. Preloader → reveal → init player */
 runPreloader(fontsReady, dataReady).then((videos) => {
-  /* Init background video and parallax AFTER preloader hides */
   initBgVideo();
   initParallax();
+
+  if (!videos || !videos[0]) return;
+
   /*
-   * Load featured player AFTER preloader is gone.
-   * Critical for mobile: iframe created in visible context → autoplay allowed.
-   * On desktop this also fixes the "second refresh" bug.
+   * Wait 2 paint frames after preloader is gone.
+   * This guarantees the browser has actually rendered the page
+   * so the YouTube iframe enters a truly visible context.
+   * On mobile this is critical — otherwise autoplay gets blocked.
    */
-  if (videos && videos[0]) {
-    loadPlayer(videos[0].id, videos[0].url);
-  }
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      bootPlayer(videos[0].id, videos[0].url);
+    });
+  });
 });
