@@ -68,7 +68,7 @@ function parseYouTubeXml(xml) {
 }
 
 /* Cache */
-const CACHE_KEY = "essk_v9";
+const CACHE_KEY = "essk_v10";
 const CACHE_TTL = 3 * 60 * 1000;
 
 function cacheGet(key, ttl) {
@@ -107,7 +107,11 @@ async function fetchYouTubeVideos() {
     return cached;
   }
   const results = await Promise.all(DATA_SOURCES.map((s) => trySource(s).catch(() => null)));
-  for (const r of results) if (r) { cacheSet(CACHE_KEY, r); return r; }
+  for (const r of results) if (r) {
+    /* Filter out streams — all start with "RADIO 24/7!" */
+    const filtered = r.filter((v) => !v.title.toUpperCase().startsWith("RADIO 24/7"));
+    if (filtered.length) { cacheSet(CACHE_KEY, filtered); return filtered; }
+  }
   throw new Error("All sources failed");
 }
 
