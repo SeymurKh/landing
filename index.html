@@ -24,6 +24,15 @@
   <link rel="shortcut icon" type="image/webp" href="./yt-channel-favicon-circle.webp" />
   <link rel="apple-touch-icon" href="./yt-channel-favicon-circle.webp" />
 
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="./manifest.json" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="mobile-web-app-capable" content="yes" />
+
+  <!-- SEO -->
+  <link rel="canonical" href="https://esskeymusic.com/" />
+
   <!-- Preconnect: fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -37,6 +46,28 @@
 
   <!-- Styles -->
   <link rel="stylesheet" href="./styles.min.css" />
+
+  <!-- Structured Data (JSON-LD) -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "MusicGroup",
+    "name": "EssKeyMusic",
+    "description": "Music & Atmosphere — ambient, lo-fi & downtempo for deep focus, coding, and late-night thinking.",
+    "url": "https://www.youtube.com/@EssKeyMusic",
+    "sameAs": [
+      "https://www.youtube.com/@EssKeyMusic"
+    ],
+    "genre": ["Ambient", "Lo-Fi", "Downtempo"],
+    "potentialAction": {
+      "@type": "SubscribeAction",
+      "target": {
+        "@type": "EntryPoint",
+        "urlTemplate": "https://www.youtube.com/@EssKeyMusic?sub_confirmation=1"
+      }
+    }
+  }
+  </script>
 </head>
 <body class="is-loading">
   <!-- Preloader -->
@@ -50,7 +81,7 @@
 
   <!-- Background video — autoplay + muted + playsinline in HTML for mobile support -->
   <div class="page-bg" aria-hidden="true">
-    <video
+        <video
       class="page-bg-video"
       autoplay
       muted
@@ -58,6 +89,8 @@
       playsinline
       webkit-playsinline
       preload="auto"
+      aria-hidden="true"
+      title="Background ambient video"
     >
       <source src="./bg-video.mp4" type="video/mp4">
     </video>
@@ -69,7 +102,7 @@
   <!-- Top navigation bar -->
   <header class="topbar">
     <div class="brand-wrap">
-      <img src="./yt-channel-logo-circle.webp" alt="EssKeyMusic logo" class="brand-mark" width="46" height="46" />
+      <img src="./yt-channel-logo-circle.webp" alt="EssKeyMusic logo" class="brand-mark" width="46" height="46" loading="lazy" />
       <span class="brand-name">EssKeyMusic</span>
     </div>
     <nav class="nav">
@@ -173,3 +206,4 @@
   <script src="./script.min.js"></script>
 </body>
 </html>
+

@@ -1,1 +1,47 @@
-.vercel
+# Build artifacts
+*.min.js
+*.min.css
+
+# Media files (large binaries)
+*.mp4
+*.webm
+*.webp
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.svg
+*.ico
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Claude AI
+.claude/
+# Vercel
+.vercel/
+

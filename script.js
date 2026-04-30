@@ -20,11 +20,19 @@
 
 /* ─── 1. Config & Data Sources ─────────────────────────────────────────── */
 
-const CHANNEL_ID = "UCa9kWM8BbmFi5OpXbjyqk9w";
-const RSS_URL    = `https://www.youtube.com/feeds/videos.xml?channel_id=${CHANNEL_ID}`;
+const CONFIG = {
+  CHANNEL_ID: "UCa9kWM8BbmFi5OpXbjyqk9w",
+  RSS_URL: `https://www.youtube.com/feeds/videos.xml?channel_id=UCa9kWM8BbmFi5OpXbjyqk9w`,
+  VISIBLE_VIDEO_COUNT: 6,
+  CACHE_TTL: 3 * 60 * 1000, // 3 minutes
+  PRELOADER_MAX_TIME: 8000,
+  RSS_TIMEOUT: 12000,
+  PARALLAX_FACTOR: 0.03,
+  CACHE_KEY: "essk_v13",
+};
 
-/* How many video cards are visible before "Show all" */
-const VISIBLE_VIDEO_COUNT = 6;
+const RSS_URL = CONFIG.RSS_URL;
+const VISIBLE_VIDEO_COUNT = CONFIG.VISIBLE_VIDEO_COUNT;
 
 /*
  * Two RSS proxy sources fetched in parallel via Promise.any.
@@ -80,6 +88,12 @@ const $preloaderPct = document.getElementById("preloaderPercent");
 
 /* ─── 3. Utility Functions ─────────────────────────────────────────────── */
 
+/** Validate email address with stricter regex */
+function isValidEmail(email) {
+  const re = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+  return re.test(email);
+}
+
 /** Build a YouTube thumbnail URL from a video ID */
 function coverUrl(id) {
   return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
@@ -111,8 +125,8 @@ function parseYouTubeXml(xml) {
 
 /* ─── 3b. Local Storage Cache ──────────────────────────────────────────── */
 
-const CACHE_KEY = "essk_v13";
-const CACHE_TTL = 3 * 60 * 1000; // 3 minutes
+const CACHE_KEY = CONFIG.CACHE_KEY;
+const CACHE_TTL = CONFIG.CACHE_TTL;
 
 function cacheGet(key, ttl) {
   try {
@@ -122,7 +136,11 @@ function cacheGet(key, ttl) {
 }
 
 function cacheSet(key, data) {
-  try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data })); } catch {}
+  try {
+    localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data }));
+  } catch (err) {
+    console.warn("[EssKey] Cache write failed:", err.message);
+  }
 }
 
 
@@ -134,7 +152,7 @@ function cacheSet(key, data) {
  */
 async function trySource(src) {
   const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), 12000);
+  const timer = setTimeout(() => ctl.abort(), CONFIG.RSS_TIMEOUT);
   try {
     const res = await fetch(src.url, { signal: ctl.signal });
     clearTimeout(timer);
@@ -438,7 +456,7 @@ if ($form && $status) {
     const msg   = $form.querySelector("#message").value.trim();
 
     if (name.length < 2) { $status.textContent = "Please enter your name."; return; }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { $status.textContent = "Please enter a valid email."; return; }
+    if (!isValidEmail(email)) { $status.textContent = "Please enter a valid email."; return; }
     if (msg.length < 8)  { $status.textContent = "Please add a short message."; return; }
 
     const subj = encodeURIComponent(`EssKey Music Contact Form — ${name}`);
@@ -521,8 +539,8 @@ function runPreloader(fontsReady, dataReady) {
     reveal(); // Even if data fails, reveal the page
   });
 
-  /* Safety: reveal after 8s regardless */
-  setTimeout(reveal, 8000);
+    /* Safety: reveal after max time regardless */
+  setTimeout(reveal, CONFIG.PRELOADER_MAX_TIME);
 
   return done;
 }
@@ -550,7 +568,7 @@ function initParallax() {
   }
 
   window.addEventListener("scroll", () => {
-    targetY = window.scrollY * 0.03; // 3% shift
+    targetY = window.scrollY * CONFIG.PARALLAX_FACTOR; // parallax shift
     if (!ticking) {
       ticking = true;
       requestAnimationFrame(update);
