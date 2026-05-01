@@ -2,7 +2,7 @@
 *.min.js
 *.min.css
 
-# Media files (large binaries)
+# Media files (large binaries - use CDN or external storage)
 *.mp4
 *.webm
 *.webp

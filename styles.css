@@ -284,7 +284,7 @@ main {
   background: rgba(12, 12, 12, 0.62);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 180ms ease;
+  transition: opacity var(--transition-fast) ease;
 }
 
 .player-fallback.is-visible {
@@ -437,8 +437,7 @@ h2 {
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   padding: 8px;
-  transition:
-    opacity 220ms ease,
+    transition: opacity var(--transition-normal) ease,
     transform 220ms ease,
     visibility 0s linear 360ms;
 }
@@ -695,7 +694,7 @@ h2 {
 .reveal {
   opacity: 0;
   transform: translateY(36px);
-  transition: opacity 700ms ease, transform 700ms ease;
+  transition: opacity var(--transition-slow) ease, transform var(--transition-slow) ease;
 }
 
 .reveal.is-visible {

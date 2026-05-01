@@ -194,7 +194,7 @@
       </div>
     </section>
 
-    <!-- CTA subscribe -->
+        <!-- CTA subscribe -->
     <section id="cta" class="section section-cta reveal">
       <p class="eyebrow">Join The Circle</p>
       <h2>Subscribe</h2>
@@ -203,7 +203,33 @@
     </section>
   </main>
 
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div class="footer-content">
+      <p class="footer-text">© 2024 EssKeyMusic. All rights reserved.</p>
+      <div class="footer-links">
+        <a href="https://www.youtube.com/@EssKeyMusic" target="_blank" rel="noopener noreferrer">YouTube</a>
+        <a href="mailto:EssKey_YTB@protonmail.com">Contact</a>
+      </div>
+    </div>
+  </footer>
+
   <script src="./script.min.js"></script>
+
+  <!-- Service Worker Registration -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then((registration) => {
+            console.log('[SW] Registered:', registration.scope);
+          })
+          .catch((error) => {
+            console.log('[SW] Registration failed:', error);
+          });
+      });
+    }
+  </script>
 </body>
 </html>
 

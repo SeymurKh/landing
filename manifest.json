@@ -1,1 +1,53 @@
-{"name":"EssKeyMusic | YouTube Channel","short_name":"EssKeyMusic","description":"Music & Atmosphere — ambient, lo-fi & downtempo for deep focus, coding, and late-night thinking.","start_url":"/","display":"standalone","background_color":"#070707","theme_color":"#070707","orientation":"portrait-primary","scope":"/","icons":[{"src":"./yt-channel-favicon-circle.webp","sizes":"192x192","type":"image/webp","purpose":"any maskable"},{"src":"./yt-channel-logo-circle.webp","sizes":"512x512","type":"image/webp","purpose":"any maskable"}],"categories":["music","entertainment"],"screenshots":[],"shortcuts":[{"name":"Latest Videos","short_name":"Videos","description":"View latest video releases","url":"/#videos","icons":[{"src":"./yt-channel-favicon-circle.webp","sizes":"96x96"}]},{"name":"Live Streams","short_name":"Live","description":"Watch live streams","url":"/#live","icons":[{"src":"./yt-channel-favicon-circle.webp","sizes":"96x96"}]}]}
+{
+  "name": "EssKeyMusic | YouTube Channel",
+  "short_name": "EssKeyMusic",
+  "description": "Music & Atmosphere — ambient, lo-fi & downtempo for deep focus, coding, and late-night thinking.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#070707",
+  "theme_color": "#070707",
+  "orientation": "portrait-primary",
+  "scope": "./",
+  "icons": [
+    {
+      "src": "./yt-channel-favicon-circle.webp",
+      "sizes": "192x192",
+      "type": "image/webp",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./yt-channel-logo-circle.webp",
+      "sizes": "512x512",
+      "type": "image/webp",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["music", "entertainment"],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Latest Videos",
+      "short_name": "Videos",
+      "description": "View latest video releases",
+      "url": "./#videos",
+      "icons": [
+        {
+          "src": "./yt-channel-favicon-circle.webp",
+          "sizes": "96x96"
+        }
+      ]
+    },
+    {
+      "name": "Live Streams",
+      "short_name": "Live",
+      "description": "Watch live streams",
+      "url": "./#live",
+      "icons": [
+        {
+          "src": "./yt-channel-favicon-circle.webp",
+          "sizes": "96x96"
+        }
+      ]
+    }
+  ]
+}

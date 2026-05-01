@@ -1,5 +1,5 @@
 /* Service Worker: Enables offline functionality and cache management */
-
+/* ═══════════════════════════════════════════════════════════════════════════ */
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open('v1').then((cache) => {
