@@ -23,8 +23,9 @@
 const CONFIG = {
   CHANNEL_ID: "UCa9kWM8BbmFi5OpXbjyqk9w",
   RSS_URL: `https://www.youtube.com/feeds/videos.xml?channel_id=UCa9kWM8BbmFi5OpXbjyqk9w`,
-  VISIBLE_VIDEO_COUNT: 6,
-  CACHE_TTL: 3 * 60 * 1000, // 3 minutes
+  VISIBLE_VIDEO_COUNT: 6,        // How many videos to show initially (UI limit)
+  MAX_VIDEOS: null,               // Max videos to fetch (null = no limit). YouTube RSS returns ~15 max.
+  CACHE_TTL: 3 * 60 * 1000,       // 3 minutes
   PRELOADER_MAX_TIME: 8000,
   RSS_TIMEOUT: 12000,
   PARALLAX_FACTOR: 0.03,
@@ -35,15 +36,24 @@ const RSS_URL = CONFIG.RSS_URL;
 const VISIBLE_VIDEO_COUNT = CONFIG.VISIBLE_VIDEO_COUNT;
 
 /*
- * Two RSS proxy sources fetched in parallel via Promise.any.
+ * Two RSS proxy sources fetched in parallel.
  * First successful response wins. Each has a 12s timeout.
+ * 
+ * IMPORTANT: YouTube RSS feeds are limited to the last 15 videos by YouTube.
+ * To get more videos, use YouTube Data API v3 instead of RSS.
  */
 const DATA_SOURCES = [
   {
     name: "AllOrigins",
     url: `https://api.allorigins.win/get?url=${encodeURIComponent(RSS_URL)}`,
     async parse(json) {
-      if (!json.contents) throw new Error("No contents");
+      if (!json || typeof json !== "object") {
+        throw new Error("Invalid response format");
+      }
+      if (json.status && json.status.http_code >= 400) {
+        throw new Error(`Proxy error: ${json.status.http_code}`);
+      }
+      if (!json.contents) throw new Error("No contents in response");
       return parseYouTubeXml(json.contents);
     },
   },
@@ -51,15 +61,25 @@ const DATA_SOURCES = [
     name: "rss2json",
     url: `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(RSS_URL)}`,
     parse(json) {
-      if (!json.items?.length) throw new Error("No items");
+      if (!json || typeof json !== "object") {
+        throw new Error("Invalid response format");
+      }
+      /* Check for API error response */
+      if (json.status === "error") {
+        throw new Error(json.message || "RSS2JSON API error");
+      }
+      if (!json.items?.length) throw new Error("No items in feed");
       /* rss2json returns ALL videos from the feed — no limit */
-      return json.items.map((item) => ({
-        id:        extractVideoId(item.link),
-        title:     item.title,
-        url:       item.link,
-        thumbnail: item.thumbnail || item.enclosure?.link || "",
-        published: item.pubDate,
-      }));
+      return json.items.map((item) => {
+        if (!item.link) return null;
+        return {
+          id:        extractVideoId(item.link),
+          title:     item.title || "Untitled",
+          url:       item.link,
+          thumbnail: item.thumbnail || item.enclosure?.link || "",
+          published: item.pubDate || "",
+        };
+      }).filter(Boolean);  /* Remove null entries */
     },
   },
 ];
@@ -99,6 +119,17 @@ function coverUrl(id) {
   return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
 }
 
+/** Validate that a string is a safe HTTP(S) URL to prevent XSS */
+function isValidHttpUrl(value) {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 /** Extract 11-char YouTube video ID from various URL formats */
 function extractVideoId(url) {
   const match = url.match(/(?:v=|youtu\.be\/|\/videos\/)([a-zA-Z0-9_-]{11})/);
@@ -107,19 +138,35 @@ function extractVideoId(url) {
 
 /** Parse raw YouTube Atom XML into an array of video objects */
 function parseYouTubeXml(xml) {
+  if (!xml || typeof xml !== "string") {
+    throw new Error("Invalid XML data");
+  }
+  
   const doc = new DOMParser().parseFromString(xml, "text/xml");
+  
+  /* Check for parsing errors */
+  const parseError = doc.querySelector("parsererror");
+  if (parseError) {
+    throw new Error("XML parsing failed - invalid feed format");
+  }
+  
   const entries = [...doc.querySelectorAll("entry")];
-  if (!entries.length) throw new Error("No entries in XML");
+  if (!entries.length) throw new Error("No entries in XML feed");
+  
   return entries.map((e) => {
     const id = e.querySelector("videoId")?.textContent || "";
+    if (!id) {
+      console.warn("[EssKey] Entry missing videoId, skipping");
+      return null;
+    }
     return {
       id,
-      title:     e.querySelector("title")?.textContent || "",
+      title:     e.querySelector("title")?.textContent || "Untitled",
       url:       `https://youtu.be/${id}`,
       thumbnail: coverUrl(id),
       published: e.querySelector("published")?.textContent || "",
     };
-  });
+  }).filter(Boolean);  /* Remove null entries */
 }
 
 
@@ -130,16 +177,48 @@ const CACHE_TTL = CONFIG.CACHE_TTL;
 
 function cacheGet(key, ttl) {
   try {
-    const { ts, data } = JSON.parse(localStorage.getItem(key) || "{}");
-    return Date.now() - ts < ttl ? data : null;
-  } catch { return null; }
+    const item = localStorage.getItem(key);
+    if (!item) return null;
+    
+    const parsed = JSON.parse(item);
+    if (!parsed || typeof parsed.ts !== "number" || !Array.isArray(parsed.data)) {
+      /* Invalid cache structure - clear it */
+      localStorage.removeItem(key);
+      return null;
+    }
+    
+    /* Check TTL */
+    if (Date.now() - parsed.ts >= ttl) {
+      localStorage.removeItem(key);
+      return null;
+    }
+    
+    return parsed.data;
+  } catch (err) {
+    console.warn("[EssKey] Cache read failed:", err.message);
+    try {
+      localStorage.removeItem(key);
+    } catch (e) { /* Ignore cleanup errors */ }
+    return null;
+  }
 }
 
 function cacheSet(key, data) {
   try {
+    if (!Array.isArray(data)) {
+      console.warn("[EssKey] Cache write failed: data must be an array");
+      return;
+    }
     localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data }));
   } catch (err) {
     console.warn("[EssKey] Cache write failed:", err.message);
+    /* QuotaExceededError - try to clear old cache */
+    if (err.name === "QuotaExceededError") {
+      try {
+        localStorage.removeItem(key);
+        console.log("[EssKey] Cleared old cache due to quota limit");
+      } catch (e) { /* Ignore */ }
+    }
   }
 }
 
@@ -148,7 +227,7 @@ function cacheSet(key, data) {
 
 /**
  * Try a single RSS data source. Aborts after 12s.
- * Returns array of video objects on success, throws on failure.
+ * Returns array of video objects on success, throws on failure with detailed error info.
  */
 async function trySource(src) {
   const ctl = new AbortController();
@@ -156,13 +235,23 @@ async function trySource(src) {
   try {
     const res = await fetch(src.url, { signal: ctl.signal });
     clearTimeout(timer);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      const errType = res.status >= 500 ? 'server' : res.status === 404 ? 'notfound' : 'client';
+      throw new Error(`HTTP ${res.status} (${errType})`);
+    }
     const data = await res.json();
     const videos = await src.parse(data);
-    if (!videos.length) throw new Error("No videos");
+    if (!videos.length) throw new Error("Empty feed");
     return videos;
   } catch (err) {
     clearTimeout(timer);
+    /* Enhance error message with context */
+    if (err.name === 'AbortError') {
+      throw new Error(`Timeout after ${CONFIG.RSS_TIMEOUT}ms`);
+    }
+    if (err.message.includes('Failed to fetch')) {
+      throw new Error('Network error - check connection');
+    }
     throw err;
   }
 }
@@ -170,33 +259,68 @@ async function trySource(src) {
 /**
  * Fetch latest videos. Strategy:
  *  1. Check localStorage cache (3 min TTL)
- *  2. Try AllOrigins + rss2json in parallel (Promise.any)
+ *  2. Try AllOrigins + rss2json in parallel
  *  3. Filter out "RADIO 24/7" entries (those are streams)
  *  4. Cache the filtered result
+ *  5. Fallback to stale cache if all sources fail
+ * 
+ * NOTE: YouTube RSS is limited to 15 most recent videos.
+ * If you need more, implement YouTube Data API v3.
  */
 async function fetchYouTubeVideos() {
   /* 1. Cache hit? */
   const cached = cacheGet(CACHE_KEY, CACHE_TTL);
-  if (cached?.length) return cached;
+  if (cached?.length) {
+    console.log(`[EssKey] Using cached data (${cached.length} videos)`);
+    return cached;
+  }
 
-  /* 2. Try both sources in parallel — first success wins */
+  /* 2. Try both sources in parallel — use first successful result */
   const results = await Promise.all(
     DATA_SOURCES.map((s) => trySource(s).catch((err) => {
       console.warn(`[EssKey] ${s.name} failed:`, err.message);
       return null;
     }))
   );
+  
+  /* Pick first non-null result */
   for (const r of results) {
-    if (!r) continue;
+    if (!r || !r.length) continue;
+    
+    const totalFetched = r.length;
     /* 3. Filter streams (all start with "RADIO 24/7") */
     const filtered = r.filter((v) => !v.title.toUpperCase().startsWith("RADIO 24/7"));
-    if (filtered.length) {
+    const streamsFiltered = totalFetched - filtered.length;
+    
+    /* Apply MAX_VIDEOS limit if configured */
+    const limited = CONFIG.MAX_VIDEOS ? filtered.slice(0, CONFIG.MAX_VIDEOS) : filtered;
+    
+    console.log(`[EssKey] Fetched ${totalFetched} entries, filtered ${streamsFiltered} streams, ${limited.length} videos available`);
+    
+    if (limited.length) {
       /* 4. Cache before returning */
-      cacheSet(CACHE_KEY, filtered);
-      return filtered;
+      cacheSet(CACHE_KEY, limited);
+      return limited;
     }
   }
-  throw new Error("All RSS sources failed");
+  
+  /* All sources failed - try stale cache as last resort */
+  try {
+    const staleCache = localStorage.getItem(CACHE_KEY);
+    if (staleCache) {
+      const parsed = JSON.parse(staleCache);
+      if (parsed?.data?.length) {
+        console.warn("[EssKey] Using stale cache as fallback");
+        return parsed.data;
+      }
+    }
+  } catch (err) {
+    console.warn("[EssKey] Could not read stale cache:", err.message);
+  }
+  
+  /* Complete failure - throw detailed error */
+  const failureReasons = results.filter(r => r === null).length;
+  throw new Error(`All ${DATA_SOURCES.length} RSS sources failed (${failureReasons} errors). Check network connection.`);
 }
 
 
@@ -216,33 +340,119 @@ function clearSkeletons(container) {
   container.querySelectorAll(".skeleton-card").forEach((s) => s.remove());
 }
 
+/**
+ * Render error state with retry button.
+ * Shows user-friendly error message and allows manual retry.
+ */
+function renderErrorState(container, errorMsg) {
+  container.innerHTML = "";
+  
+  const errorWrapper = document.createElement("div");
+  errorWrapper.className = "error-state";
+  errorWrapper.style.cssText = "padding:40px 20px;text-align:center;";
+  
+  const icon = document.createElement("p");
+  icon.textContent = "⚠️";
+  icon.style.cssText = "font-size:3rem;margin:0 0 16px;";
+  
+  const title = document.createElement("p");
+  title.className = "live-empty";
+  title.textContent = "Unable to load videos";
+  title.style.cssText = "margin:0 0 8px;font-size:1.1rem;";
+  
+  const message = document.createElement("p");
+  message.className = "live-empty";
+  message.style.cssText = "font-size:0.85rem;margin:0 0 20px;opacity:0.7;";
+  
+  /* User-friendly error messages */
+  if (errorMsg.includes("Timeout")) {
+    message.textContent = "The request took too long. Please check your connection.";
+  } else if (errorMsg.includes("Network error")) {
+    message.textContent = "Unable to reach the server. Check your internet connection.";
+  } else if (errorMsg.includes("All") && errorMsg.includes("sources failed")) {
+    message.textContent = "All video sources are temporarily unavailable.";
+  } else {
+    message.textContent = "Something went wrong while loading videos.";
+  }
+  
+  const retryBtn = document.createElement("button");
+  retryBtn.className = "btn btn-line";
+  retryBtn.textContent = "Try Again";
+  retryBtn.style.cssText = "cursor:pointer;";
+  retryBtn.addEventListener("click", () => {
+    /* Clear cache and reload page */
+    try {
+      localStorage.removeItem(CONFIG.CACHE_KEY);
+    } catch (e) {
+      console.warn("[EssKey] Could not clear cache:", e);
+    }
+    window.location.reload();
+  });
+  
+  errorWrapper.appendChild(icon);
+  errorWrapper.appendChild(title);
+  errorWrapper.appendChild(message);
+  errorWrapper.appendChild(retryBtn);
+  container.appendChild(errorWrapper);
+}
+
 /** Add a text link to a flyout dropdown */
 function appendFlyoutLink(flyout, { title, url }) {
+  /* Validate URL before adding */
+  if (!isValidHttpUrl(url)) return;
+  
   const a = document.createElement("a");
   a.className   = "flyout-link";
   a.href        = url;
   a.target      = "_blank";
   a.rel         = "noopener noreferrer";
-  a.textContent = title;
+  a.textContent = title || "Video";  /* Use textContent to prevent XSS */
   flyout.appendChild(a);
 }
 
 /** Create and append a media card to a grid container. Returns the card element. */
 function appendMediaCard(container, video) {
   const { id, title, url, thumbnail } = video;
-  const bg = thumbnail || coverUrl(id);
+  
+  /* Validate and sanitize URLs */
+  const safeVideoUrl = isValidHttpUrl(url) ? url : id ? `https://youtu.be/${id}` : "";
+  const bgUrl = isValidHttpUrl(thumbnail) ? thumbnail : coverUrl(id);
 
   const card = document.createElement("article");
   card.className = "media-card reveal";
-  card.style.setProperty("--bg", `url('${bg}')`);
-  card.addEventListener("click", () => window.open(url, "_blank", "noopener"));
-  card.insertAdjacentHTML(
-    "beforeend",
-    `<div class="media-card-body">
-      <h3 class="media-title">${title}</h3>
-      <a class="btn btn-line" href="${url}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Watch</a>
-    </div>`
-  );
+  
+  /* Escape CSS URL to prevent injection */
+  const escapedBgUrl = bgUrl.replace(/[\\"']/g, (match) => {
+    const escapes = { '"': '\\"', "'": "\\'", "\\": "\\\\" };
+    return escapes[match] || match;
+  });
+  card.style.setProperty("--bg", `url('${escapedBgUrl}')`);
+  
+  /* Click handler only if URL is valid */
+  if (safeVideoUrl) {
+    card.addEventListener("click", () => window.open(safeVideoUrl, "_blank", "noopener"));
+  }
+
+  /* Build card body using safe DOM methods (no innerHTML) */
+  const body = document.createElement("div");
+  body.className = "media-card-body";
+
+  const titleEl = document.createElement("h3");
+  titleEl.className = "media-title";
+  titleEl.textContent = title || "Untitled video";  /* Safe: textContent cannot execute JS */
+
+  const link = document.createElement("a");
+  link.className = "btn btn-line";
+  link.textContent = "Watch";
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  if (safeVideoUrl) link.href = safeVideoUrl;
+  link.addEventListener("click", (event) => event.stopPropagation());
+
+  body.appendChild(titleEl);
+  body.appendChild(link);
+  card.appendChild(body);
+
   container.appendChild(card);
   observeReveal(card);
   return card;
@@ -400,13 +610,24 @@ if ($playerPlayBtn) $playerPlayBtn.classList.add("is-visible");
  */
 function bootPlayer(videoId, videoUrl) {
   if (!$playerHost) return;
+  
+  /* Validate videoId — must be 11 alphanumeric chars */
+  if (!/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
+    console.error("[EssKey] Invalid video ID:", videoId);
+    return;
+  }
+  
+  /* Validate and set fallback link */
+  if ($playerFallback && isValidHttpUrl(videoUrl)) {
+    $playerFallback.href = videoUrl;
+  }
+
   playerLoaded = true;
-  if ($playerFallback) $playerFallback.href = videoUrl;
 
   /* Clear any existing content */
   $playerHost.innerHTML = "";
 
-  /* Build the iframe */
+  /* Build the iframe — YouTube embed is safe by design */
   const iframe = document.createElement("iframe");
   iframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&controls=1&rel=0&playsinline=1&modestbranding=1`;
   iframe.allow = "autoplay; encrypted-media";
@@ -445,25 +666,131 @@ if ($playerPlayBtn) {
 
 /* ─── 9. Contact Form ──────────────────────────────────────────────────── */
 
+/*
+ * NOTE: This form uses mailto: approach.
+ * Pros: No backend needed, works offline, user controls email sending
+ * Cons: Requires email client, exposes email address, no server-side validation
+ * 
+ * For production with high volume, consider:
+ * - Backend API (Node.js/PHP/Python) with email service
+ * - Services: Formspree, EmailJS, SendGrid, etc.
+ */
+
 const $form   = document.getElementById("contactForm");
 const $status = document.getElementById("formStatus");
 
 if ($form && $status) {
+  const $nameField = $form.querySelector("#name");
+  const $emailField = $form.querySelector("#email");
+  const $msgField = $form.querySelector("#message");
+  
+  let statusTimeout = null;
+
+  /* Helper: show status message with auto-clear */
+  function showStatus(message, type = "info", duration = 5000) {
+    $status.textContent = message;
+    $status.className = `form-status form-status--${type}`;
+    $status.style.opacity = "1";
+    
+    if (statusTimeout) clearTimeout(statusTimeout);
+    if (duration > 0) {
+      statusTimeout = setTimeout(() => {
+        $status.style.opacity = "0";
+      }, duration);
+    }
+  }
+
+  /* Real-time validation feedback on blur */
+  if ($nameField) {
+    $nameField.addEventListener("blur", () => {
+      const val = $nameField.value.trim();
+      if (val && val.length < 2) {
+        showStatus("Name should be at least 2 characters.", "error", 3000);
+      }
+    });
+  }
+
+  if ($emailField) {
+    $emailField.addEventListener("blur", () => {
+      const val = $emailField.value.trim();
+      if (val && !isValidEmail(val)) {
+        showStatus("Please enter a valid email address.", "error", 3000);
+      }
+    });
+  }
+
+  /* Form submission */
   $form.addEventListener("submit", (e) => {
     e.preventDefault();
-    const name  = $form.querySelector("#name").value.trim();
-    const email = $form.querySelector("#email").value.trim();
-    const msg   = $form.querySelector("#message").value.trim();
+    
+    const name  = $nameField.value.trim();
+    const email = $emailField.value.trim();
+    const msg   = $msgField.value.trim();
 
-    if (name.length < 2) { $status.textContent = "Please enter your name."; return; }
-    if (!isValidEmail(email)) { $status.textContent = "Please enter a valid email."; return; }
-    if (msg.length < 8)  { $status.textContent = "Please add a short message."; return; }
+    /* Validation */
+    if (name.length < 2) {
+      showStatus("Please enter your name (at least 2 characters).", "error");
+      $nameField.focus();
+      return;
+    }
+    if (name.length > 60) {
+      showStatus("Name is too long (max 60 characters).", "error");
+      $nameField.focus();
+      return;
+    }
+    if (!isValidEmail(email)) {
+      showStatus("Please enter a valid email address.", "error");
+      $emailField.focus();
+      return;
+    }
+    if (email.length > 120) {
+      showStatus("Email is too long (max 120 characters).", "error");
+      $emailField.focus();
+      return;
+    }
+    if (msg.length < 8) {
+      showStatus("Please write a message (at least 8 characters).", "error");
+      $msgField.focus();
+      return;
+    }
+    if (msg.length > 1000) {
+      showStatus("Message is too long (max 1000 characters).", "error");
+      $msgField.focus();
+      return;
+    }
 
+    /* Build mailto link */
     const subj = encodeURIComponent(`EssKey Music Contact Form — ${name}`);
     const body = encodeURIComponent(`Name: ${name}\nEmail: ${email}\n\nMessage:\n${msg}`);
-    window.location.href = `mailto:EssKey_YTB@protonmail.com?subject=${subj}&body=${body}`;
-    $status.textContent = "Your email app is opening with a pre-filled message.";
-    $form.reset();
+    const mailtoLink = `mailto:EssKey_YTB@protonmail.com?subject=${subj}&body=${body}`;
+    
+    /* Check if mailto is likely to work */
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    const hasMailto = true; // Browsers support mailto, but client may not be configured
+    
+    try {
+      window.location.href = mailtoLink;
+      showStatus(
+        isMobile 
+          ? "Opening your email app... If nothing happens, please email us directly."
+          : "Your email program should open now. If it doesn't, please copy the email address above.",
+        "success",
+        8000
+      );
+      
+      /* Reset form after a short delay (user might need to see the data) */
+      setTimeout(() => {
+        $form.reset();
+      }, 1000);
+      
+    } catch (err) {
+      console.error("[EssKey] Mailto error:", err);
+      showStatus(
+        "Could not open email client. Please email us directly at EssKey_YTB@protonmail.com",
+        "error",
+        0  // Don't auto-hide
+      );
+    }
   });
 }
 
@@ -596,9 +923,9 @@ const dataReady = fetchYouTubeVideos()
     return videos;
   })
   .catch((err) => {
-    console.warn("[EssKey] RSS fetch failed:", err.message);
+    console.error("[EssKey] RSS fetch failed:", err.message);
     clearSkeletons($videoList);
-    $videoList.innerHTML = '<p class="live-empty">Unable to load videos. Try refreshing.</p>';
+    renderErrorState($videoList, err.message);
     return [];
   });
 

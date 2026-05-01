@@ -677,6 +677,21 @@ h2 {
   margin: 4px 0 0;
   color: #cfcfcf;
   font-size: 0.88rem;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  line-height: 1.5;
+}
+
+.form-status--error {
+  color: #ff7676;
+}
+
+.form-status--success {
+  color: #86e3a0;
+}
+
+.form-status--info {
+  color: #b8d8ff;
 }
 
 /* ─── CTA section ────────────────────────────────────────────────────── */

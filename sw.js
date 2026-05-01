@@ -4,11 +4,12 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open('v1').then((cache) => {
       return cache.addAll([
-        '/landing/index.html',
-        '/landing/styles.css',
-        '/landing/script.js',
-        '/landing/video.mp4',
-        '/landing/manifest.json'
+        '/index.html',
+        '/styles.min.css',
+        '/script.min.js',
+        '/bg-video.mp4',
+        '/bg-video.webm',
+        '/manifest.json'
       ]);
     })
   );
