@@ -91,7 +91,11 @@
       preload="auto"
       aria-hidden="true"
       title="Background ambient video"
+      poster="./bg-video-poster.jpg"
     >
+      <!-- WebM first - better compression, smaller file -->
+      <source src="./bg-video.webm" type="video/webm">
+      <!-- MP4 fallback - better compatibility -->
       <source src="./bg-video.mp4" type="video/mp4">
     </video>
   </div>

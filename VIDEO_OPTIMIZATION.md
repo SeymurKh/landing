@@ -1,8 +1,17 @@
 # Video Optimization Guide
 
-## Current Status
-- `bg-video.mp4`: 11.6 MB (TOO LARGE!)
+## Current Status (Updated)
+- `bg-video.mp4`: 11.6 MB (NEEDS OPTIMIZATION)
 - `bg-video.webm`: 3.9 MB (GOOD)
+- `bg-video-poster.jpg`: NOT CREATED YET
+
+## HTML Structure (Fixed)
+```html
+<video autoplay muted loop playsinline poster="./bg-video-poster.jpg">
+  <source src="./bg-video.webm" type="video/webm">  <!-- WebM first - smaller -->
+  <source src="./bg-video.mp4" type="video/mp4">    <!-- MP4 fallback -->
+</video>
+```
 
 ## Target Goals
 - MP4: ~2-3 MB (reduce from 11.6 MB)

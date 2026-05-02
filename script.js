@@ -6,7 +6,7 @@
      1. Config & Data Sources
      2. DOM References
      3. Utility Functions
-     4. Data Fetching (RSS → Latest Videos)
+     4. Data Fetching (YouTube API v3 + RSS Fallback)
      5. Rendering (cards, skeletons, show-more)
      6. Scroll Reveal Animation
      7. Background Video Fallback
@@ -22,77 +22,27 @@
 
 const CONFIG = {
   CHANNEL_ID: "UCa9kWM8BbmFi5OpXbjyqk9w",
+  
+  // YouTube Data API v3 Key
+  // ⚠️ SECURITY: Restrict this key in Google Cloud Console:
+  //    - Go to: https://console.cloud.google.com/apis/credentials
+  //    - Edit this key → Application restrictions: HTTP referrers
+  //    - Add: https://esskeymusic.com/* and https://*.github.io/*
+  YOUTUBE_API_KEY: "AIzaSyBF1CMRH89borC-ibFL3LXX_7XofUJLEuY",
+  
   RSS_URL: `https://www.youtube.com/feeds/videos.xml?channel_id=UCa9kWM8BbmFi5OpXbjyqk9w`,
   VISIBLE_VIDEO_COUNT: 6,        // How many videos to show initially (UI limit)
-  MAX_VIDEOS: null,               // Max videos to fetch (null = no limit). YouTube RSS returns ~15 max.
-  CACHE_TTL: 3 * 60 * 1000,       // 3 minutes
+  MAX_VIDEOS: 50,                // Max videos to fetch via YouTube API (up to 50)
+  CACHE_TTL: 5 * 60 * 1000,      // 5 minutes (increased for API quota)
   PRELOADER_MAX_TIME: 8000,
+  API_TIMEOUT: 10000,            // YouTube API timeout
   RSS_TIMEOUT: 12000,
   PARALLAX_FACTOR: 0.03,
-  CACHE_KEY: "essk_v13",
+  CACHE_KEY: "essk_v14",         // Updated cache key for new format
 };
 
 const RSS_URL = CONFIG.RSS_URL;
 const VISIBLE_VIDEO_COUNT = CONFIG.VISIBLE_VIDEO_COUNT;
-
-/*
- * Two RSS proxy sources fetched in parallel.
- * First successful response wins. Each has a 12s timeout.
- * 
- * IMPORTANT: YouTube RSS feeds are limited to the last 15 videos by YouTube.
- * To get more videos, use YouTube Data API v3 instead of RSS.
- */
-const DATA_SOURCES = [
-  {
-    name: "AllOrigins",
-    url: `https://api.allorigins.win/get?url=${encodeURIComponent(RSS_URL)}`,
-    async parse(json) {
-      if (!json || typeof json !== "object") {
-        throw new Error("Invalid response format");
-      }
-      if (json.status && json.status.http_code >= 400) {
-        throw new Error(`Proxy error: ${json.status.http_code}`);
-      }
-      if (!json.contents) throw new Error("No contents in response");
-      return parseYouTubeXml(json.contents);
-    },
-  },
-  {
-    name: "rss2json",
-    url: `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(RSS_URL)}`,
-    parse(json) {
-      if (!json || typeof json !== "object") {
-        throw new Error("Invalid response format");
-      }
-      /* Check for API error response */
-      if (json.status === "error") {
-        throw new Error(json.message || "RSS2JSON API error");
-      }
-      if (!json.items?.length) throw new Error("No items in feed");
-      /* rss2json returns ALL videos from the feed — no limit */
-      return json.items.map((item) => {
-        if (!item.link) return null;
-        return {
-          id:        extractVideoId(item.link),
-          title:     item.title || "Untitled",
-          url:       item.link,
-          thumbnail: item.thumbnail || item.enclosure?.link || "",
-          published: item.pubDate || "",
-        };
-      }).filter(Boolean);  /* Remove null entries */
-    },
-  },
-];
-
-/*
- * Streams — HARDCODED.
- * YouTube RSS cannot distinguish live streams from regular uploads.
- * Update this array manually when a new stream goes live.
- */
-const STREAMS = [
-  { id: "RJtt_Jd9Uns", title: "RADIO 24/7 | Downtempo for Coding, Work & Inner Flow",           url: "https://www.youtube.com/live/RJtt_Jd9Uns", thumbnail: "https://i.ytimg.com/vi/RJtt_Jd9Uns/hqdefault.jpg" },
-  { id: "Y0BSnmYRh_8", title: "RADIO 24/7 | Organic House For Deep working, Art & Design Works", url: "https://www.youtube.com/live/Y0BSnmYRh_8", thumbnail: "https://i.ytimg.com/vi/Y0BSnmYRh_8/hqdefault.jpg" },
-];
 
 
 /* ─── 2. DOM References ────────────────────────────────────────────────── */
@@ -166,7 +116,7 @@ function parseYouTubeXml(xml) {
       thumbnail: coverUrl(id),
       published: e.querySelector("published")?.textContent || "",
     };
-  }).filter(Boolean);  /* Remove null entries */
+  }).filter(Boolean);
 }
 
 
@@ -182,12 +132,10 @@ function cacheGet(key, ttl) {
     
     const parsed = JSON.parse(item);
     if (!parsed || typeof parsed.ts !== "number" || !Array.isArray(parsed.data)) {
-      /* Invalid cache structure - clear it */
       localStorage.removeItem(key);
       return null;
     }
     
-    /* Check TTL */
     if (Date.now() - parsed.ts >= ttl) {
       localStorage.removeItem(key);
       return null;
@@ -198,7 +146,7 @@ function cacheGet(key, ttl) {
     console.warn("[EssKey] Cache read failed:", err.message);
     try {
       localStorage.removeItem(key);
-    } catch (e) { /* Ignore cleanup errors */ }
+    } catch (e) {}
     return null;
   }
 }
@@ -212,32 +160,152 @@ function cacheSet(key, data) {
     localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data }));
   } catch (err) {
     console.warn("[EssKey] Cache write failed:", err.message);
-    /* QuotaExceededError - try to clear old cache */
     if (err.name === "QuotaExceededError") {
       try {
         localStorage.removeItem(key);
         console.log("[EssKey] Cleared old cache due to quota limit");
-      } catch (e) { /* Ignore */ }
+      } catch (e) {}
     }
   }
 }
 
 
-/* ─── 4. Data Fetching (RSS) ───────────────────────────────────────────── */
+/* ─── 4. Data Fetching (YouTube API v3 + RSS Fallback) ────────────────── */
 
 /**
- * Try a single RSS data source. Aborts after 12s.
- * Returns array of video objects on success, throws on failure with detailed error info.
+ * Fetch videos using YouTube Data API v3.
+ * This is the PRIMARY method - more reliable and gets up to 50 videos.
+ * 
+ * API endpoint: playlistItems.list
+ * - Uses the channel's "uploads" playlist to get all videos
+ * - More efficient than search.list (lower quota cost)
  */
-async function trySource(src) {
+async function fetchViaYouTubeAPI() {
+  const uploadsPlaylistId = CONFIG.CHANNEL_ID.replace("UC", "UU");
+  
+  const url = new URL("https://www.googleapis.com/youtube/v3/playlistItems");
+  url.searchParams.set("part", "snippet,contentDetails");
+  url.searchParams.set("playlistId", uploadsPlaylistId);
+  url.searchParams.set("maxResults", String(CONFIG.MAX_VIDEOS));
+  url.searchParams.set("key", CONFIG.YOUTUBE_API_KEY);
+  
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), CONFIG.API_TIMEOUT);
+  
+  try {
+    const res = await fetch(url.toString(), { signal: ctl.signal });
+    clearTimeout(timer);
+    
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}));
+      const errorMsg = errorData.error?.message || `HTTP ${res.status}`;
+      
+      // Check for quota exceeded
+      if (res.status === 403 && errorMsg.includes("quota")) {
+        throw new Error("YouTube API quota exceeded");
+      }
+      
+      throw new Error(`YouTube API error: ${errorMsg}`);
+    }
+    
+    const data = await res.json();
+    
+    if (!data.items || !data.items.length) {
+      throw new Error("No videos found in API response");
+    }
+    
+    // Parse API response into our video format
+    const videos = data.items
+      .filter(item => item.snippet?.resourceId?.videoId)
+      .map(item => {
+        const videoId = item.snippet.resourceId.videoId;
+        const title = item.snippet.title || "Untitled";
+        
+        // Skip private/deleted videos
+        if (title === "Private video" || title === "Deleted video") {
+          return null;
+        }
+        
+        return {
+          id: videoId,
+          title: title,
+          url: `https://youtu.be/${videoId}`,
+          thumbnail: item.snippet.thumbnails?.high?.url || 
+                     item.snippet.thumbnails?.medium?.url || 
+                     coverUrl(videoId),
+          published: item.contentDetails?.videoPublishedAt || 
+                     item.snippet.publishedAt || "",
+        };
+      })
+      .filter(Boolean);
+    
+    console.log(`[EssKey] YouTube API: fetched ${videos.length} videos`);
+    return videos;
+    
+  } catch (err) {
+    clearTimeout(timer);
+    if (err.name === "AbortError") {
+      throw new Error(`YouTube API timeout after ${CONFIG.API_TIMEOUT}ms`);
+    }
+    throw err;
+  }
+}
+
+/**
+ * RSS proxy sources as FALLBACK when YouTube API fails.
+ * Limited to ~15 videos by YouTube's RSS feed.
+ */
+const RSS_SOURCES = [
+  {
+    name: "AllOrigins",
+    url: `https://api.allorigins.win/get?url=${encodeURIComponent(RSS_URL)}`,
+    async parse(json) {
+      if (!json || typeof json !== "object") {
+        throw new Error("Invalid response format");
+      }
+      if (json.status && json.status.http_code >= 400) {
+        throw new Error(`Proxy error: ${json.status.http_code}`);
+      }
+      if (!json.contents) throw new Error("No contents in response");
+      return parseYouTubeXml(json.contents);
+    },
+  },
+  {
+    name: "rss2json",
+    url: `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(RSS_URL)}`,
+    parse(json) {
+      if (!json || typeof json !== "object") {
+        throw new Error("Invalid response format");
+      }
+      if (json.status === "error") {
+        throw new Error(json.message || "RSS2JSON API error");
+      }
+      if (!json.items?.length) throw new Error("No items in feed");
+      return json.items.map((item) => {
+        if (!item.link) return null;
+        return {
+          id:        extractVideoId(item.link),
+          title:     item.title || "Untitled",
+          url:       item.link,
+          thumbnail: item.thumbnail || item.enclosure?.link || "",
+          published: item.pubDate || "",
+        };
+      }).filter(Boolean);
+    },
+  },
+];
+
+/**
+ * Try a single RSS data source. Aborts after timeout.
+ */
+async function tryRSSSource(src) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), CONFIG.RSS_TIMEOUT);
   try {
     const res = await fetch(src.url, { signal: ctl.signal });
     clearTimeout(timer);
     if (!res.ok) {
-      const errType = res.status >= 500 ? 'server' : res.status === 404 ? 'notfound' : 'client';
-      throw new Error(`HTTP ${res.status} (${errType})`);
+      throw new Error(`HTTP ${res.status}`);
     }
     const data = await res.json();
     const videos = await src.parse(data);
@@ -245,66 +313,85 @@ async function trySource(src) {
     return videos;
   } catch (err) {
     clearTimeout(timer);
-    /* Enhance error message with context */
-    if (err.name === 'AbortError') {
+    if (err.name === "AbortError") {
       throw new Error(`Timeout after ${CONFIG.RSS_TIMEOUT}ms`);
-    }
-    if (err.message.includes('Failed to fetch')) {
-      throw new Error('Network error - check connection');
     }
     throw err;
   }
 }
 
 /**
+ * Fallback to RSS when YouTube API fails.
+ */
+async function fetchViaRSS() {
+  const results = await Promise.all(
+    RSS_SOURCES.map((s) => tryRSSSource(s).catch((err) => {
+      console.warn(`[EssKey] RSS ${s.name} failed:`, err.message);
+      return null;
+    }))
+  );
+  
+  for (const r of results) {
+    if (r?.length) {
+      console.log(`[EssKey] RSS fallback: ${r.length} videos`);
+      return r;
+    }
+  }
+  
+  throw new Error("All RSS sources failed");
+}
+
+/**
  * Fetch latest videos. Strategy:
- *  1. Check localStorage cache (3 min TTL)
- *  2. Try AllOrigins + rss2json in parallel
- *  3. Filter out "RADIO 24/7" entries (those are streams)
- *  4. Cache the filtered result
- *  5. Fallback to stale cache if all sources fail
- * 
- * NOTE: YouTube RSS is limited to 15 most recent videos.
- * If you need more, implement YouTube Data API v3.
+ *  1. Check localStorage cache
+ *  2. Try YouTube Data API v3 (PRIMARY - up to 50 videos)
+ *  3. Fallback to RSS proxies (LIMITED - ~15 videos)
+ *  4. Filter out "RADIO 24/7" streams
+ *  5. Cache the result
  */
 async function fetchYouTubeVideos() {
-  /* 1. Cache hit? */
+  // 1. Cache hit?
   const cached = cacheGet(CACHE_KEY, CACHE_TTL);
   if (cached?.length) {
     console.log(`[EssKey] Using cached data (${cached.length} videos)`);
     return cached;
   }
 
-  /* 2. Try both sources in parallel — use first successful result */
-  const results = await Promise.all(
-    DATA_SOURCES.map((s) => trySource(s).catch((err) => {
-      console.warn(`[EssKey] ${s.name} failed:`, err.message);
-      return null;
-    }))
-  );
+  let videos = null;
+  let source = "none";
   
-  /* Pick first non-null result */
-  for (const r of results) {
-    if (!r || !r.length) continue;
+  // 2. Try YouTube API first (PRIMARY)
+  try {
+    videos = await fetchViaYouTubeAPI();
+    source = "YouTube API";
+  } catch (err) {
+    console.warn(`[EssKey] YouTube API failed:`, err.message);
     
-    const totalFetched = r.length;
-    /* 3. Filter streams (all start with "RADIO 24/7") */
-    const filtered = r.filter((v) => !v.title.toUpperCase().startsWith("RADIO 24/7"));
+    // 3. Fallback to RSS
+    try {
+      videos = await fetchViaRSS();
+      source = "RSS";
+    } catch (rssErr) {
+      console.warn(`[EssKey] RSS fallback failed:`, rssErr.message);
+    }
+  }
+  
+  // 4. Filter streams and apply limit
+  if (videos?.length) {
+    const totalFetched = videos.length;
+    const filtered = videos.filter((v) => !v.title.toUpperCase().startsWith("RADIO 24/7"));
     const streamsFiltered = totalFetched - filtered.length;
-    
-    /* Apply MAX_VIDEOS limit if configured */
     const limited = CONFIG.MAX_VIDEOS ? filtered.slice(0, CONFIG.MAX_VIDEOS) : filtered;
     
-    console.log(`[EssKey] Fetched ${totalFetched} entries, filtered ${streamsFiltered} streams, ${limited.length} videos available`);
+    console.log(`[EssKey] ${source}: ${totalFetched} fetched, ${streamsFiltered} streams filtered, ${limited.length} videos`);
     
     if (limited.length) {
-      /* 4. Cache before returning */
       cacheSet(CACHE_KEY, limited);
       return limited;
     }
   }
   
-  /* All sources failed - try stale cache as last resort */
+  // 5. Try stale cache as last resort
   try {
     const staleCache = localStorage.getItem(CACHE_KEY);
     if (staleCache) {
@@ -318,9 +405,7 @@ async function fetchYouTubeVideos() {
     console.warn("[EssKey] Could not read stale cache:", err.message);
   }
   
-  /* Complete failure - throw detailed error */
-  const failureReasons = results.filter(r => r === null).length;
-  throw new Error(`All ${DATA_SOURCES.length} RSS sources failed (${failureReasons} errors). Check network connection.`);
+  throw new Error("Failed to fetch videos from all sources. Check your connection.");
 }
 
 
@@ -342,7 +427,6 @@ function clearSkeletons(container) {
 
 /**
  * Render error state with retry button.
- * Shows user-friendly error message and allows manual retry.
  */
 function renderErrorState(container, errorMsg) {
   container.innerHTML = "";
@@ -364,13 +448,12 @@ function renderErrorState(container, errorMsg) {
   message.className = "live-empty";
   message.style.cssText = "font-size:0.85rem;margin:0 0 20px;opacity:0.7;";
   
-  /* User-friendly error messages */
-  if (errorMsg.includes("Timeout")) {
+  if (errorMsg.includes("quota")) {
+    message.textContent = "API quota exceeded. Please try again later.";
+  } else if (errorMsg.includes("Timeout")) {
     message.textContent = "The request took too long. Please check your connection.";
-  } else if (errorMsg.includes("Network error")) {
+  } else if (errorMsg.includes("Network") || errorMsg.includes("fetch")) {
     message.textContent = "Unable to reach the server. Check your internet connection.";
-  } else if (errorMsg.includes("All") && errorMsg.includes("sources failed")) {
-    message.textContent = "All video sources are temporarily unavailable.";
   } else {
     message.textContent = "Something went wrong while loading videos.";
   }
@@ -380,12 +463,9 @@ function renderErrorState(container, errorMsg) {
   retryBtn.textContent = "Try Again";
   retryBtn.style.cssText = "cursor:pointer;";
   retryBtn.addEventListener("click", () => {
-    /* Clear cache and reload page */
     try {
       localStorage.removeItem(CONFIG.CACHE_KEY);
-    } catch (e) {
-      console.warn("[EssKey] Could not clear cache:", e);
-    }
+    } catch (e) {}
     window.location.reload();
   });
   
@@ -398,7 +478,6 @@ function renderErrorState(container, errorMsg) {
 
 /** Add a text link to a flyout dropdown */
 function appendFlyoutLink(flyout, { title, url }) {
-  /* Validate URL before adding */
   if (!isValidHttpUrl(url)) return;
   
   const a = document.createElement("a");
@@ -406,40 +485,36 @@ function appendFlyoutLink(flyout, { title, url }) {
   a.href        = url;
   a.target      = "_blank";
   a.rel         = "noopener noreferrer";
-  a.textContent = title || "Video";  /* Use textContent to prevent XSS */
+  a.textContent = title || "Video";
   flyout.appendChild(a);
 }
 
-/** Create and append a media card to a grid container. Returns the card element. */
+/** Create and append a media card to a grid container. */
 function appendMediaCard(container, video) {
   const { id, title, url, thumbnail } = video;
   
-  /* Validate and sanitize URLs */
   const safeVideoUrl = isValidHttpUrl(url) ? url : id ? `https://youtu.be/${id}` : "";
   const bgUrl = isValidHttpUrl(thumbnail) ? thumbnail : coverUrl(id);
 
   const card = document.createElement("article");
   card.className = "media-card reveal";
   
-  /* Escape CSS URL to prevent injection */
   const escapedBgUrl = bgUrl.replace(/[\\"']/g, (match) => {
     const escapes = { '"': '\\"', "'": "\\'", "\\": "\\\\" };
     return escapes[match] || match;
   });
   card.style.setProperty("--bg", `url('${escapedBgUrl}')`);
   
-  /* Click handler only if URL is valid */
   if (safeVideoUrl) {
     card.addEventListener("click", () => window.open(safeVideoUrl, "_blank", "noopener"));
   }
 
-  /* Build card body using safe DOM methods (no innerHTML) */
   const body = document.createElement("div");
   body.className = "media-card-body";
 
   const titleEl = document.createElement("h3");
   titleEl.className = "media-title";
-  titleEl.textContent = title || "Untitled video";  /* Safe: textContent cannot execute JS */
+  titleEl.textContent = title || "Untitled video";
 
   const link = document.createElement("a");
   link.className = "btn btn-line";
@@ -460,34 +535,26 @@ function appendMediaCard(container, video) {
 
 /**
  * Render the Latest Videos grid.
- * Shows first VISIBLE_VIDEO_COUNT cards, hides the rest.
- * Adds a "Show all N videos" / "Show less" toggle button.
  */
 function renderVideos(videos) {
   clearSkeletons($videoList);
   $videoList.innerHTML = "";
   if ($videoFlyout) $videoFlyout.innerHTML = "";
 
-  /* Create all cards */
   const cards = videos.map((v) => appendMediaCard($videoList, v));
 
-  /* Flyout links (top nav dropdown) — always show all */
   if ($videoFlyout) {
     for (const v of videos) appendFlyoutLink($videoFlyout, v);
   }
 
-  /* If more than VISIBLE_VIDEO_COUNT, hide extras + add toggle button */
   if (cards.length <= VISIBLE_VIDEO_COUNT) return;
 
-  /* Hide cards beyond the visible limit */
   cards.forEach((card, i) => {
     if (i >= VISIBLE_VIDEO_COUNT) card.classList.add("is-hidden-card");
   });
 
-  /* Remove old toggle button if re-rendering */
   document.getElementById("showMoreBtn")?.remove();
 
-  /* Create toggle button */
   const btn = document.createElement("button");
   btn.id = "showMoreBtn";
   btn.className = "btn btn-ghost show-more-btn";
@@ -504,7 +571,6 @@ function renderVideos(videos) {
     btn.textContent = expanded ? "Show less" : `Show all ${videos.length} videos`;
   });
 
-  /* Insert button right after the grid */
   $videoList.parentNode.insertBefore(btn, $videoList.nextSibling);
 }
 
@@ -521,10 +587,6 @@ function renderStreams(streams) {
 
 /* ─── 6. Scroll Reveal Animation ───────────────────────────────────────── */
 
-/**
- * Elements with class "reveal" fade in + slide up when they enter the viewport.
- * Uses IntersectionObserver for performance (no scroll event listener).
- */
 const revealObs = new IntersectionObserver(
   (entries) => {
     for (const entry of entries) {
@@ -541,7 +603,6 @@ function observeReveal(el) {
   revealObs.observe(el);
 }
 
-/* Observe all .reveal elements already in the HTML (hero content, section heads, etc.) */
 document.querySelectorAll(".reveal").forEach((el, i) => {
   el.style.transitionDelay = `${Math.min(i * 50, 200)}ms`;
   revealObs.observe(el);
@@ -550,27 +611,17 @@ document.querySelectorAll(".reveal").forEach((el, i) => {
 
 /* ─── 7. Background Video Fallback ─────────────────────────────────────── */
 
-/**
- * The <video> element in HTML has autoplay + muted + playsinline attributes.
- * This function runs after the preloader is gone and explicitly calls .play().
- * On iOS the HTML attributes usually suffice; on Android the JS .play() helps.
- * Touch/click listener is only the last resort if both fail.
- */
 const $pageBg = document.querySelector(".page-bg");
 const $bgVideo = document.querySelector(".page-bg-video");
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 function initBgVideo() {
   if (!$bgVideo || reducedMotion) return;
-
-  /* Already playing from HTML autoplay (e.g. iOS Safari) */
   if (!$bgVideo.paused) return;
 
-  /* Explicitly call play — works on most Android browsers when video is visible */
   $bgVideo.play().then(() => {
     console.log("[EssKey] BG video playing");
   }).catch(() => {
-    /* Browser blocked autoplay entirely — last resort: wait for any tap */
     console.log("[EssKey] BG video blocked, waiting for user interaction");
     const retry = () => {
       $bgVideo.play().catch(() => {});
@@ -583,51 +634,30 @@ function initBgVideo() {
 
 /* ─── 8. Featured YouTube Player ───────────────────────────────────────── */
 
-/*
- * Strategy: simple iframe with autoplay=1&mute=1.
- * No fragile YT IFrame API — just a standard embed iframe.
- * The iframe is created AFTER the preloader is gone (visible context).
- *
- * If autoplay is blocked by the browser:
- *   — YouTube shows its own "Tap to play" inside the iframe.
- *   — Our pulsing Play button also works as a fallback.
- *     Each click recreates the iframe (fresh autoplay attempt).
- */
-
 const $playerHost    = document.getElementById("featuredPlayer");
 const $playerFallback = document.getElementById("playerFallback");
 const $playerPlayBtn  = document.getElementById("playerPlayBtn");
 
-let playerLoaded  = false;  // Whether an iframe has been created
-let latestVideos   = [];     // Populated after RSS fetch
+let playerLoaded  = false;
+let latestVideos   = [];
 
-/* Show the Play button immediately — serves as visual fallback */
 if ($playerPlayBtn) $playerPlayBtn.classList.add("is-visible");
 
-/**
- * Create (or recreate) the YouTube embed iframe.
- * Safe to call multiple times — each call gives a fresh autoplay attempt.
- */
 function bootPlayer(videoId, videoUrl) {
   if (!$playerHost) return;
   
-  /* Validate videoId — must be 11 alphanumeric chars */
   if (!/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
     console.error("[EssKey] Invalid video ID:", videoId);
     return;
   }
   
-  /* Validate and set fallback link */
   if ($playerFallback && isValidHttpUrl(videoUrl)) {
     $playerFallback.href = videoUrl;
   }
 
   playerLoaded = true;
-
-  /* Clear any existing content */
   $playerHost.innerHTML = "";
 
-  /* Build the iframe — YouTube embed is safe by design */
   const iframe = document.createElement("iframe");
   iframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&controls=1&rel=0&playsinline=1&modestbranding=1`;
   iframe.allow = "autoplay; encrypted-media";
@@ -636,14 +666,11 @@ function bootPlayer(videoId, videoUrl) {
   $playerHost.appendChild(iframe);
 }
 
-/** Try to auto-boot the player (called after preloader is gone) */
 function tryAutoBoot() {
   if (latestVideos.length && !playerLoaded) {
-    /* 2 paint frames delay — ensures browser has rendered the page */
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         bootPlayer(latestVideos[0].id, latestVideos[0].url);
-        /* Optimistically hide play button */
         if ($playerPlayBtn) $playerPlayBtn.classList.remove("is-visible");
         if ($playerFallback) $playerFallback.classList.add("is-visible");
       });
@@ -651,12 +678,10 @@ function tryAutoBoot() {
   }
 }
 
-/* Play button click — user gesture = guaranteed autoplay */
 if ($playerPlayBtn) {
   $playerPlayBtn.addEventListener("click", () => {
     if (!latestVideos.length) return;
     const v = latestVideos[0];
-    /* Recreate iframe (fresh autoplay within user gesture context) */
     bootPlayer(v.id, v.url);
     $playerPlayBtn.classList.remove("is-visible");
     if ($playerFallback) $playerFallback.classList.add("is-visible");
@@ -665,16 +690,6 @@ if ($playerPlayBtn) {
 
 
 /* ─── 9. Contact Form ──────────────────────────────────────────────────── */
-
-/*
- * NOTE: This form uses mailto: approach.
- * Pros: No backend needed, works offline, user controls email sending
- * Cons: Requires email client, exposes email address, no server-side validation
- * 
- * For production with high volume, consider:
- * - Backend API (Node.js/PHP/Python) with email service
- * - Services: Formspree, EmailJS, SendGrid, etc.
- */
 
 const $form   = document.getElementById("contactForm");
 const $status = document.getElementById("formStatus");
@@ -686,7 +701,6 @@ if ($form && $status) {
   
   let statusTimeout = null;
 
-  /* Helper: show status message with auto-clear */
   function showStatus(message, type = "info", duration = 5000) {
     $status.textContent = message;
     $status.className = `form-status form-status--${type}`;
@@ -700,7 +714,6 @@ if ($form && $status) {
     }
   }
 
-  /* Real-time validation feedback on blur */
   if ($nameField) {
     $nameField.addEventListener("blur", () => {
       const val = $nameField.value.trim();
@@ -719,7 +732,6 @@ if ($form && $status) {
     });
   }
 
-  /* Form submission */
   $form.addEventListener("submit", (e) => {
     e.preventDefault();
     
@@ -727,7 +739,6 @@ if ($form && $status) {
     const email = $emailField.value.trim();
     const msg   = $msgField.value.trim();
 
-    /* Validation */
     if (name.length < 2) {
       showStatus("Please enter your name (at least 2 characters).", "error");
       $nameField.focus();
@@ -759,14 +770,11 @@ if ($form && $status) {
       return;
     }
 
-    /* Build mailto link */
     const subj = encodeURIComponent(`EssKey Music Contact Form — ${name}`);
     const body = encodeURIComponent(`Name: ${name}\nEmail: ${email}\n\nMessage:\n${msg}`);
     const mailtoLink = `mailto:EssKey_YTB@protonmail.com?subject=${subj}&body=${body}`;
     
-    /* Check if mailto is likely to work */
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    const hasMailto = true; // Browsers support mailto, but client may not be configured
     
     try {
       window.location.href = mailtoLink;
@@ -778,7 +786,6 @@ if ($form && $status) {
         8000
       );
       
-      /* Reset form after a short delay (user might need to see the data) */
       setTimeout(() => {
         $form.reset();
       }, 1000);
@@ -788,7 +795,7 @@ if ($form && $status) {
       showStatus(
         "Could not open email client. Please email us directly at EssKey_YTB@protonmail.com",
         "error",
-        0  // Don't auto-hide
+        0
       );
     }
   });
@@ -797,13 +804,6 @@ if ($form && $status) {
 
 /* ─── 10. Preloader ────────────────────────────────────────────────────── */
 
-/**
- * Smooth milestone-based preloader.
- * Phases: 0→40% (random ramp) → 60% (fonts ready) → 100% (data ready).
- * Returns a Promise that resolves AFTER the preloader is fully hidden.
- *
- * Safety timeout: 8s max — reveals the page even if data never arrives.
- */
 function runPreloader(fontsReady, dataReady) {
   if (!$preloader || !$preloaderBar || !$preloaderPct) {
     document.body.classList.remove("is-loading");
@@ -821,31 +821,26 @@ function runPreloader(fontsReady, dataReady) {
     $preloaderPct.textContent = pct + "%";
   }
 
-  /** Reveal the page — can only run once */
   function reveal() {
     if (finished) return;
     finished = true;
     setPct(100);
     $preloader.classList.add("is-hidden");
     document.body.classList.remove("is-loading");
-    /* Wait for CSS fade-out transition (300ms) + extra buffer */
     setTimeout(resolveFn, 600);
   }
 
-  /* Phase 1: Random ramp 0 → 40% while waiting */
   const ramp = setInterval(() => {
     pct += Math.random() * 5 + 1;
     if (pct > 40) pct = 40;
     setPct(pct);
   }, 120);
 
-  /* Phase 2: Fonts loaded → jump to 60% */
   fontsReady.then(() => {
     clearInterval(ramp);
     if (pct < 60) setPct(60);
   });
 
-  /* Phase 3: Data loaded → smooth easeOutCubic to 100% → reveal */
   dataReady.then(() => {
     clearInterval(ramp);
     const from    = Math.max(pct, 60);
@@ -853,7 +848,7 @@ function runPreloader(fontsReady, dataReady) {
     const duration = 500;
     function animate(now) {
       const t    = Math.min((now - start) / duration, 1);
-      const ease = 1 - Math.pow(1 - t, 3); // easeOutCubic
+      const ease = 1 - Math.pow(1 - t, 3);
       setPct(from + (100 - from) * ease);
       if (t < 1) {
         requestAnimationFrame(animate);
@@ -863,10 +858,9 @@ function runPreloader(fontsReady, dataReady) {
     }
     requestAnimationFrame(animate);
   }).catch(() => {
-    reveal(); // Even if data fails, reveal the page
+    reveal();
   });
 
-    /* Safety: reveal after max time regardless */
   setTimeout(reveal, CONFIG.PRELOADER_MAX_TIME);
 
   return done;
@@ -875,11 +869,6 @@ function runPreloader(fontsReady, dataReady) {
 
 /* ─── 11. Parallax Background ──────────────────────────────────────────── */
 
-/**
- * Shifts the background video vertically by 3% of scroll position.
- * Uses lerp (linear interpolation) for smooth, lag-free movement.
- * Disabled if user prefers reduced motion.
- */
 function initParallax() {
   if (!$pageBg || reducedMotion) return;
 
@@ -888,14 +877,14 @@ function initParallax() {
   let ticking  = false;
 
   function update() {
-    currentY += (targetY - currentY) * 0.1; // lerp factor
+    currentY += (targetY - currentY) * 0.1;
     if (Math.abs(targetY - currentY) < 0.05) currentY = targetY;
     $pageBg.style.transform = `translate3d(0, ${currentY}px, 0)`;
     ticking = false;
   }
 
   window.addEventListener("scroll", () => {
-    targetY = window.scrollY * CONFIG.PARALLAX_FACTOR; // parallax shift
+    targetY = window.scrollY * CONFIG.PARALLAX_FACTOR;
     if (!ticking) {
       ticking = true;
       requestAnimationFrame(update);
@@ -906,13 +895,9 @@ function initParallax() {
 
 /* ─── 12. Bootstrap (Entry Point) ──────────────────────────────────────── */
 
-/* 1. Render hardcoded streams immediately (no network needed) */
 renderStreams(STREAMS);
-
-/* 2. Show skeleton placeholders while RSS loads */
 renderSkeletons($videoList, VISIBLE_VIDEO_COUNT);
 
-/* 3. Start fetching RSS data */
 const fontsReady = document.fonts?.ready || Promise.resolve();
 
 const dataReady = fetchYouTubeVideos()
@@ -923,21 +908,22 @@ const dataReady = fetchYouTubeVideos()
     return videos;
   })
   .catch((err) => {
-    console.error("[EssKey] RSS fetch failed:", err.message);
+    console.error("[EssKey] Fetch failed:", err.message);
     clearSkeletons($videoList);
     renderErrorState($videoList, err.message);
     return [];
   });
 
-/* 4. Run preloader → reveal page → init player */
 runPreloader(fontsReady, dataReady).then(() => {
   initBgVideo();
   initParallax();
-
-  /*
-   * Try to auto-boot the featured player.
-   * Also hook into dataReady in case it resolves after the safety timeout.
-   */
   tryAutoBoot();
-  dataReady.then(tryAutoBoot); // Handles race condition: data arrives after preloader
+  dataReady.then(tryAutoBoot);
 });
+
+/* ─── Streams Data (hardcoded) ────────────────────────────────────────── */
+
+const STREAMS = [
+  { id: "RJtt_Jd9Uns", title: "RADIO 24/7 | Downtempo for Coding, Work & Inner Flow",           url: "https://www.youtube.com/live/RJtt_Jd9Uns", thumbnail: "https://i.ytimg.com/vi/RJtt_Jd9Uns/hqdefault.jpg" },
+  { id: "Y0BSnmYRh_8", title: "RADIO 24/7 | Organic House For Deep working, Art & Design Works", url: "https://www.youtube.com/live/Y0BSnmYRh_8", thumbnail: "https://i.ytimg.com/vi/Y0BSnmYRh_8/hqdefault.jpg" },
+];
