@@ -592,7 +592,6 @@ h2 {
   position: relative;
 }
 
-.live-placeholder,
 .live-empty {
   color: var(--muted);
   font-size: 0.92rem;

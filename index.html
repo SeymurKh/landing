@@ -6,6 +6,7 @@
   <title>EssKeyMusic | YouTube Channel</title>
   <meta name="description" content="EssKey Music — ambient, lo-fi & downtempo for deep focus, coding, and late-night thinking. Subscribe for new releases and live sessions." />
   <meta name="theme-color" content="#070707" />
+  <meta name="robots" content="index, follow" />
 
   <!-- Open Graph -->
   <meta property="og:title" content="EssKeyMusic | YouTube Channel" />
@@ -37,9 +38,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 
-  <!-- Preconnect: YouTube (iframe API + thumbnails) -->
+  <!-- Preconnect: YouTube -->
   <link rel="preconnect" href="https://www.youtube.com" />
   <link rel="dns-prefetch" href="//i.ytimg.com" />
+  <link rel="dns-prefetch" href="//www.googleapis.com" />
 
   <!-- Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700&family=Cormorant+Garamond:wght@500;600;700&display=swap" rel="stylesheet" />
@@ -79,23 +81,20 @@
     </div>
   </div>
 
-  <!-- Background video — autoplay + muted + playsinline in HTML for mobile support -->
+  <!-- Background video -->
   <div class="page-bg" aria-hidden="true">
-        <video
+    <video
       class="page-bg-video"
       autoplay
       muted
       loop
       playsinline
-      webkit-playsinline
       preload="auto"
       aria-hidden="true"
       title="Background ambient video"
       poster="./bg-video-poster.jpg"
     >
-      <!-- WebM first - better compression, smaller file -->
       <source src="./bg-video.webm" type="video/webm">
-      <!-- MP4 fallback - better compatibility -->
       <source src="./bg-video.mp4" type="video/mp4">
     </video>
   </div>
@@ -151,7 +150,7 @@
       </div>
     </section>
 
-    <!-- Latest videos grid (auto-updated from RSS) -->
+    <!-- Latest videos grid (loaded via YouTube Data API v3) -->
     <section id="videos" class="section section-videos">
       <div class="section-head reveal">
         <p class="eyebrow">Latest Drops</p>
@@ -160,7 +159,7 @@
       <div id="videoList" class="media-grid"></div>
     </section>
 
-    <!-- Live streams (updated manually in script.js) -->
+    <!-- Live streams (hardcoded 24/7 radios) -->
     <section id="live" class="section section-live">
       <div class="section-head reveal">
         <p class="eyebrow">Live Sessions</p>
@@ -198,7 +197,7 @@
       </div>
     </section>
 
-        <!-- CTA subscribe -->
+    <!-- CTA subscribe -->
     <section id="cta" class="section section-cta reveal">
       <p class="eyebrow">Join The Circle</p>
       <h2>Subscribe</h2>
@@ -236,4 +235,3 @@
   </script>
 </body>
 </html>
-

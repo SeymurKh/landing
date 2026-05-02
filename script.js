@@ -31,18 +31,34 @@ const CONFIG = {
   YOUTUBE_API_KEY: "AIzaSyBF1CMRH89borC-ibFL3LXX_7XofUJLEuY",
   
   RSS_URL: `https://www.youtube.com/feeds/videos.xml?channel_id=UCa9kWM8BbmFi5OpXbjyqk9w`,
-  VISIBLE_VIDEO_COUNT: 6,        // How many videos to show initially (UI limit)
-  MAX_VIDEOS: 50,                // Max videos to fetch via YouTube API (up to 50)
-  CACHE_TTL: 5 * 60 * 1000,      // 5 minutes (increased for API quota)
+  VISIBLE_VIDEO_COUNT: 6,
+  MAX_VIDEOS: 50,
+  CACHE_TTL: 5 * 60 * 1000,      // 5 minutes
   PRELOADER_MAX_TIME: 8000,
-  API_TIMEOUT: 10000,            // YouTube API timeout
+  API_TIMEOUT: 10000,
   RSS_TIMEOUT: 12000,
   PARALLAX_FACTOR: 0.03,
-  CACHE_KEY: "essk_v14",         // Updated cache key for new format
+  CACHE_KEY: "essk_v14",
 };
 
-const RSS_URL = CONFIG.RSS_URL;
-const VISIBLE_VIDEO_COUNT = CONFIG.VISIBLE_VIDEO_COUNT;
+/*
+ * Streams — HARDCODED data for 24/7 live radios.
+ * Update manually when adding new streams.
+ */
+const STREAMS = [
+  { 
+    id: "RJtt_Jd9Uns", 
+    title: "RADIO 24/7 | Downtempo for Coding, Work & Inner Flow", 
+    url: "https://www.youtube.com/live/RJtt_Jd9Uns", 
+    thumbnail: "https://i.ytimg.com/vi/RJtt_Jd9Uns/hqdefault.jpg" 
+  },
+  { 
+    id: "Y0BSnmYRh_8", 
+    title: "RADIO 24/7 | Organic House For Deep working, Art & Design Works", 
+    url: "https://www.youtube.com/live/Y0BSnmYRh_8", 
+    thumbnail: "https://i.ytimg.com/vi/Y0BSnmYRh_8/hqdefault.jpg" 
+  },
+];
 
 
 /* ─── 2. DOM References ────────────────────────────────────────────────── */
@@ -94,7 +110,6 @@ function parseYouTubeXml(xml) {
   
   const doc = new DOMParser().parseFromString(xml, "text/xml");
   
-  /* Check for parsing errors */
   const parseError = doc.querySelector("parsererror");
   if (parseError) {
     throw new Error("XML parsing failed - invalid feed format");
@@ -121,9 +136,6 @@ function parseYouTubeXml(xml) {
 
 
 /* ─── 3b. Local Storage Cache ──────────────────────────────────────────── */
-
-const CACHE_KEY = CONFIG.CACHE_KEY;
-const CACHE_TTL = CONFIG.CACHE_TTL;
 
 function cacheGet(key, ttl) {
   try {
@@ -174,11 +186,7 @@ function cacheSet(key, data) {
 
 /**
  * Fetch videos using YouTube Data API v3.
- * This is the PRIMARY method - more reliable and gets up to 50 videos.
- * 
- * API endpoint: playlistItems.list
- * - Uses the channel's "uploads" playlist to get all videos
- * - More efficient than search.list (lower quota cost)
+ * PRIMARY method - more reliable and gets up to 50 videos.
  */
 async function fetchViaYouTubeAPI() {
   const uploadsPlaylistId = CONFIG.CHANNEL_ID.replace("UC", "UU");
@@ -200,7 +208,6 @@ async function fetchViaYouTubeAPI() {
       const errorData = await res.json().catch(() => ({}));
       const errorMsg = errorData.error?.message || `HTTP ${res.status}`;
       
-      // Check for quota exceeded
       if (res.status === 403 && errorMsg.includes("quota")) {
         throw new Error("YouTube API quota exceeded");
       }
@@ -214,14 +221,12 @@ async function fetchViaYouTubeAPI() {
       throw new Error("No videos found in API response");
     }
     
-    // Parse API response into our video format
     const videos = data.items
       .filter(item => item.snippet?.resourceId?.videoId)
       .map(item => {
         const videoId = item.snippet.resourceId.videoId;
         const title = item.snippet.title || "Untitled";
         
-        // Skip private/deleted videos
         if (title === "Private video" || title === "Deleted video") {
           return null;
         }
@@ -258,7 +263,7 @@ async function fetchViaYouTubeAPI() {
 const RSS_SOURCES = [
   {
     name: "AllOrigins",
-    url: `https://api.allorigins.win/get?url=${encodeURIComponent(RSS_URL)}`,
+    url: `https://api.allorigins.win/get?url=${encodeURIComponent(CONFIG.RSS_URL)}`,
     async parse(json) {
       if (!json || typeof json !== "object") {
         throw new Error("Invalid response format");
@@ -272,7 +277,7 @@ const RSS_SOURCES = [
   },
   {
     name: "rss2json",
-    url: `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(RSS_URL)}`,
+    url: `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(CONFIG.RSS_URL)}`,
     parse(json) {
       if (!json || typeof json !== "object") {
         throw new Error("Invalid response format");
@@ -295,9 +300,6 @@ const RSS_SOURCES = [
   },
 ];
 
-/**
- * Try a single RSS data source. Aborts after timeout.
- */
 async function tryRSSSource(src) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), CONFIG.RSS_TIMEOUT);
@@ -320,9 +322,6 @@ async function tryRSSSource(src) {
   }
 }
 
-/**
- * Fallback to RSS when YouTube API fails.
- */
 async function fetchViaRSS() {
   const results = await Promise.all(
     RSS_SOURCES.map((s) => tryRSSSource(s).catch((err) => {
@@ -351,26 +350,23 @@ async function fetchViaRSS() {
  */
 async function fetchYouTubeVideos() {
   // 1. Cache hit?
-  const cached = cacheGet(CACHE_KEY, CACHE_TTL);
+  const cached = cacheGet(CONFIG.CACHE_KEY, CONFIG.CACHE_TTL);
   if (cached?.length) {
     console.log(`[EssKey] Using cached data (${cached.length} videos)`);
     return cached;
   }
 
   let videos = null;
-  let source = "none";
   
   // 2. Try YouTube API first (PRIMARY)
   try {
     videos = await fetchViaYouTubeAPI();
-    source = "YouTube API";
   } catch (err) {
     console.warn(`[EssKey] YouTube API failed:`, err.message);
     
     // 3. Fallback to RSS
     try {
       videos = await fetchViaRSS();
-      source = "RSS";
     } catch (rssErr) {
       console.warn(`[EssKey] RSS fallback failed:`, rssErr.message);
     }
@@ -380,20 +376,19 @@ async function fetchYouTubeVideos() {
   if (videos?.length) {
     const totalFetched = videos.length;
     const filtered = videos.filter((v) => !v.title.toUpperCase().startsWith("RADIO 24/7"));
-    const streamsFiltered = totalFetched - filtered.length;
     const limited = CONFIG.MAX_VIDEOS ? filtered.slice(0, CONFIG.MAX_VIDEOS) : filtered;
     
-    console.log(`[EssKey] ${source}: ${totalFetched} fetched, ${streamsFiltered} streams filtered, ${limited.length} videos`);
+    console.log(`[EssKey] Fetched ${totalFetched}, filtered ${totalFetched - filtered.length} streams, ${limited.length} videos`);
     
     if (limited.length) {
-      cacheSet(CACHE_KEY, limited);
+      cacheSet(CONFIG.CACHE_KEY, limited);
       return limited;
     }
   }
   
   // 5. Try stale cache as last resort
   try {
-    const staleCache = localStorage.getItem(CACHE_KEY);
+    const staleCache = localStorage.getItem(CONFIG.CACHE_KEY);
     if (staleCache) {
       const parsed = JSON.parse(staleCache);
       if (parsed?.data?.length) {
@@ -411,7 +406,6 @@ async function fetchYouTubeVideos() {
 
 /* ─── 5. Rendering ─────────────────────────────────────────────────────── */
 
-/** Show placeholder shimmer cards while data loads */
 function renderSkeletons(container, count) {
   for (let i = 0; i < count; i++) {
     const el = document.createElement("div");
@@ -420,14 +414,10 @@ function renderSkeletons(container, count) {
   }
 }
 
-/** Remove all skeleton cards from a container */
 function clearSkeletons(container) {
   container.querySelectorAll(".skeleton-card").forEach((s) => s.remove());
 }
 
-/**
- * Render error state with retry button.
- */
 function renderErrorState(container, errorMsg) {
   container.innerHTML = "";
   
@@ -476,7 +466,6 @@ function renderErrorState(container, errorMsg) {
   container.appendChild(errorWrapper);
 }
 
-/** Add a text link to a flyout dropdown */
 function appendFlyoutLink(flyout, { title, url }) {
   if (!isValidHttpUrl(url)) return;
   
@@ -489,7 +478,6 @@ function appendFlyoutLink(flyout, { title, url }) {
   flyout.appendChild(a);
 }
 
-/** Create and append a media card to a grid container. */
 function appendMediaCard(container, video) {
   const { id, title, url, thumbnail } = video;
   
@@ -533,9 +521,6 @@ function appendMediaCard(container, video) {
   return card;
 }
 
-/**
- * Render the Latest Videos grid.
- */
 function renderVideos(videos) {
   clearSkeletons($videoList);
   $videoList.innerHTML = "";
@@ -547,10 +532,10 @@ function renderVideos(videos) {
     for (const v of videos) appendFlyoutLink($videoFlyout, v);
   }
 
-  if (cards.length <= VISIBLE_VIDEO_COUNT) return;
+  if (cards.length <= CONFIG.VISIBLE_VIDEO_COUNT) return;
 
   cards.forEach((card, i) => {
-    if (i >= VISIBLE_VIDEO_COUNT) card.classList.add("is-hidden-card");
+    if (i >= CONFIG.VISIBLE_VIDEO_COUNT) card.classList.add("is-hidden-card");
   });
 
   document.getElementById("showMoreBtn")?.remove();
@@ -564,7 +549,7 @@ function renderVideos(videos) {
   btn.addEventListener("click", () => {
     expanded = !expanded;
     cards.forEach((card, i) => {
-      if (i >= VISIBLE_VIDEO_COUNT) {
+      if (i >= CONFIG.VISIBLE_VIDEO_COUNT) {
         card.classList.toggle("is-hidden-card", !expanded);
       }
     });
@@ -574,7 +559,6 @@ function renderVideos(videos) {
   $videoList.parentNode.insertBefore(btn, $videoList.nextSibling);
 }
 
-/** Render the hardcoded Streams grid */
 function renderStreams(streams) {
   $liveList.innerHTML = "";
   if ($liveFlyout) $liveFlyout.innerHTML = "";
@@ -895,11 +879,16 @@ function initParallax() {
 
 /* ─── 12. Bootstrap (Entry Point) ──────────────────────────────────────── */
 
+// Render hardcoded streams first (no network needed)
 renderStreams(STREAMS);
-renderSkeletons($videoList, VISIBLE_VIDEO_COUNT);
 
+// Show skeleton placeholders while data loads
+renderSkeletons($videoList, CONFIG.VISIBLE_VIDEO_COUNT);
+
+// Wait for fonts
 const fontsReady = document.fonts?.ready || Promise.resolve();
 
+// Fetch video data
 const dataReady = fetchYouTubeVideos()
   .then((videos) => {
     console.log(`[EssKey] Loaded ${videos.length} videos. Latest: "${videos[0]?.title}"`);
@@ -914,16 +903,10 @@ const dataReady = fetchYouTubeVideos()
     return [];
   });
 
+// Run preloader then init everything
 runPreloader(fontsReady, dataReady).then(() => {
   initBgVideo();
   initParallax();
   tryAutoBoot();
   dataReady.then(tryAutoBoot);
 });
-
-/* ─── Streams Data (hardcoded) ────────────────────────────────────────── */
-
-const STREAMS = [
-  { id: "RJtt_Jd9Uns", title: "RADIO 24/7 | Downtempo for Coding, Work & Inner Flow",           url: "https://www.youtube.com/live/RJtt_Jd9Uns", thumbnail: "https://i.ytimg.com/vi/RJtt_Jd9Uns/hqdefault.jpg" },
-  { id: "Y0BSnmYRh_8", title: "RADIO 24/7 | Organic House For Deep working, Art & Design Works", url: "https://www.youtube.com/live/Y0BSnmYRh_8", thumbnail: "https://i.ytimg.com/vi/Y0BSnmYRh_8/hqdefault.jpg" },
-];
