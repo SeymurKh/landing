@@ -1,0 +1,11 @@
+# robots.txt for EssKeyMusic
+# https://esskey-music.vercel.app/
+
+User-agent: *
+Allow: /
+
+# Sitemap location
+Sitemap: https://esskey-music.vercel.app/sitemap.xml
+
+# Disallow internal paths
+Disallow: /sw.js

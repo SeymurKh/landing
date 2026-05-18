@@ -27,7 +27,7 @@ const CONFIG = {
   // ⚠️ SECURITY: Restrict this key in Google Cloud Console:
   //    - Go to: https://console.cloud.google.com/apis/credentials
   //    - Edit this key → Application restrictions: HTTP referrers
-  //    - Add: https://esskeymusic.com/* and https://*.github.io/*
+  //    - Add: https://esskey-music.vercel.app/*
   YOUTUBE_API_KEY: "AIzaSyBF1CMRH89borC-ibFL3LXX_7XofUJLEuY",
   
   RSS_URL: `https://www.youtube.com/feeds/videos.xml?channel_id=UCa9kWM8BbmFi5OpXbjyqk9w`,
